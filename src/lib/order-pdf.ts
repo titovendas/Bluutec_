@@ -1,11 +1,11 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import logo from "@/assets/uzzy-logo.png";
+import logo from "@/assets/bluutec-logo.png";
 import { formatCurrency, formatDate } from "@/lib/sales-formatters";
 
 // Proporção real do arquivo de logo (largura / altura), para nunca
 // desenhá-lo achatado ou esticado no PDF.
-const LOGO_ASPECT_RATIO = 392 / 180;
+const LOGO_ASPECT_RATIO = 702 / 206;
 const LOGO_HEIGHT = 34;
 const LOGO_WIDTH = LOGO_HEIGHT * LOGO_ASPECT_RATIO;
 

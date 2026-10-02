@@ -4,7 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const orderStatusSchema = z.enum(["orcamento", "pedido"]);
 
-export const priceTableSchema = z.enum(["atacado", "varejo_10", "varejo_75"]);
+export const priceTableSchema = z.enum(["varejo", "especialista", "atacado"]);
 
 // Optional UUID that also accepts an empty string (sent by forms when
 // creating a new record) and normalizes it to undefined.
@@ -146,6 +146,8 @@ const orderItemSchema = z.object({
   description: z.string(),
   image_url: z.string().nullable().optional(),
   quantity: z.coerce.number().int().min(1),
+  table_price: z.coerce.number().min(0).default(0),
+  discount_percent: z.coerce.number().min(0).max(100).default(0),
   unit_price: z.coerce.number().min(0),
   ipi_percent: z.coerce.number().min(0).default(0),
   st_percent: z.coerce.number().min(0).default(0),
@@ -156,8 +158,10 @@ const orderSchema = z.object({
   customer_id: z.string().uuid(),
   seller_id: optionalId,
   status: orderStatusSchema.default("orcamento"),
-  price_table: priceTableSchema.default("varejo_10"),
+  price_table: priceTableSchema.default("varejo"),
   payment_term: z.string().optional().or(z.literal("")),
+  cash_discount_percent: z.coerce.number().min(0).max(100).default(0),
+  pickup_discount_percent: z.coerce.number().min(0).max(100).default(0),
   items: z.array(orderItemSchema).min(1),
 });
 
@@ -581,6 +585,8 @@ export const upsertOrder = createServerFn({ method: "POST" })
       status: data.status,
       price_table: data.price_table,
       payment_term: data.payment_term || null,
+      cash_discount_percent: data.cash_discount_percent,
+      pickup_discount_percent: data.pickup_discount_percent,
       subtotal,
       ipi_total,
       st_total,
@@ -615,6 +621,8 @@ export const upsertOrder = createServerFn({ method: "POST" })
       description: item.description,
       image_url: item.image_url ?? null,
       quantity: item.quantity,
+      table_price: item.table_price,
+      discount_percent: item.discount_percent,
       unit_price: item.unit_price,
       ipi_percent: item.ipi_percent,
       st_percent: item.st_percent,

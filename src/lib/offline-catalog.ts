@@ -19,6 +19,8 @@ export type CatalogItem = {
   image_url: string | null;
   ipi_percent: number;
   st_percent: number;
+  table_price: number | null;
+  family: string | null;
   price_atacado: number | null;
   price_varejo_10: number | null;
   price_varejo_75: number | null;

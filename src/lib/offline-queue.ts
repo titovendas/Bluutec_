@@ -22,6 +22,8 @@ export type OrderItemPayload = {
   description: string;
   image_url: string | null;
   quantity: number;
+  table_price: number;
+  discount_percent: number;
   unit_price: number;
   ipi_percent: number;
   st_percent: number;
@@ -32,6 +34,8 @@ export type OrderPayload = {
   status: string;
   price_table: string;
   payment_term?: string;
+  cash_discount_percent?: number;
+  pickup_discount_percent?: number;
   items: OrderItemPayload[];
 };
 
@@ -308,6 +312,8 @@ export async function getOrderForDisplay(id: string) {
     status: op.payload.status,
     price_table: op.payload.price_table,
     payment_term: op.payload.payment_term,
+    cash_discount_percent: op.payload.cash_discount_percent ?? 0,
+    pickup_discount_percent: op.payload.pickup_discount_percent ?? 0,
     subtotal: op.totals.subtotal,
     ipi_total: op.totals.ipi_total,
     st_total: op.totals.st_total,
@@ -327,6 +333,8 @@ export async function getOrderForDisplay(id: string) {
         description: item.description,
         image_url: item.image_url ?? null,
         quantity: item.quantity,
+        table_price: item.table_price,
+        discount_percent: item.discount_percent,
         unit_price: item.unit_price,
         ipi_percent: item.ipi_percent,
         st_percent: item.st_percent,

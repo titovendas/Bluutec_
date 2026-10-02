@@ -4,6 +4,8 @@ export type OrderDraft = {
   customerId: string;
   priceTable: string;
   paymentTerm: string;
+  cashDiscountPercent?: number;
+  pickupDiscountPercent?: number;
   items: any[];
   savedAt: string;
 };
