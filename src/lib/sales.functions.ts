@@ -631,6 +631,109 @@ export const upsertOrder = createServerFn({ method: "POST" })
     return { id: orderId };
   });
 
+// Tabela de preços (Bluutec)
+//
+// Cada produto tem um preço de tabela único, uma família (usada para
+// definir a faixa de comissão) e alíquotas de ST que variam por estado.
+// Estados sem alíquota cadastrada são estados isentos de ST para esses
+// produtos (não é um dado faltando).
+const priceTableProductRowSchema = z.object({
+  code: z.string().min(1),
+  description: z.string().min(1),
+  color: z.string().optional().or(z.literal("")),
+  package_qty: z.coerce.number().int().min(0).optional(),
+  table_price: z.coerce.number().min(0),
+  family: z.string().optional().or(z.literal("")),
+});
+
+const priceTableStRowSchema = z.object({
+  code: z.string().min(1),
+  uf: z.string().min(2).max(2),
+  st_percent: z.coerce.number().min(0),
+});
+
+/**
+ * Importa a planilha completa de preços da Bluutec (tela de Configurações
+ * > Tabela de preços). Recebe as linhas já lidas no navegador (aba GERAL
+ * para os produtos, aba TABELA ST para as alíquotas por estado) e faz
+ * upsert por código de produto — reimportar a mesma planilha atualiza os
+ * produtos existentes em vez de duplicar.
+ */
+export const importPriceTable = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) =>
+    z
+      .object({
+        products: z.array(priceTableProductRowSchema),
+        stRates: z.array(priceTableStRowSchema),
+      })
+      .parse(data)
+  )
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
+
+    if (data.products.length === 0) {
+      throw new Error("Nenhum produto encontrado na aba GERAL da planilha.");
+    }
+
+    const productRows = data.products.map((p) => ({
+      code: p.code,
+      description: p.description,
+      color: p.color || null,
+      package_qty: p.package_qty ?? null,
+      table_price: p.table_price,
+      family: p.family || null,
+      // Mantém os campos antigos preenchidos com o mesmo valor, já que o
+      // pedido ainda usa "price_atacado/varejo" até reformularmos o cálculo.
+      price_atacado: p.table_price,
+      price_varejo_10: p.table_price,
+      price_varejo_75: p.table_price,
+      active: true,
+    }));
+
+    const { data: upserted, error } = await supabase
+      .from("catalog_products")
+      .upsert(productRows, { onConflict: "code" })
+      .select("id, code");
+    if (error) throw new Error(error.message);
+
+    const codeToId = new Map((upserted ?? []).map((r: any) => [r.code, r.id]));
+
+    let importedStRates = 0;
+    if (data.stRates.length > 0) {
+      const stRows = data.stRates
+        .map((r) => ({
+          product_id: codeToId.get(r.code),
+          uf: r.uf.toUpperCase(),
+          st_percent: r.st_percent,
+        }))
+        .filter((r): r is { product_id: string; uf: string; st_percent: number } =>
+          !!r.product_id
+        );
+      if (stRows.length > 0) {
+        const { error: stError } = await supabase
+          .from("product_st_rates")
+          .upsert(stRows, { onConflict: "product_id,uf" });
+        if (stError) throw new Error(stError.message);
+        importedStRates = stRows.length;
+      }
+    }
+
+    return { importedProducts: productRows.length, importedStRates };
+  });
+
+export const getPriceTableSummary = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase } = context;
+    const { count, error } = await supabase
+      .from("catalog_products")
+      .select("id", { count: "exact", head: true })
+      .not("table_price", "is", null);
+    if (error) throw new Error(error.message);
+    return { productsWithPrice: count ?? 0 };
+  });
+
 // Catalog
 export const listCatalog = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
