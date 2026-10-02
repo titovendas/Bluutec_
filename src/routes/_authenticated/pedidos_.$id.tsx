@@ -83,12 +83,16 @@ function OrderDetailPage() {
           status: "pedido" as any,
           price_table: (order as any).price_table,
           payment_term: (order as any).payment_term,
+          cash_discount_percent: Number((order as any).cash_discount_percent ?? 0),
+          pickup_discount_percent: Number((order as any).pickup_discount_percent ?? 0),
           items: items.map((item: any) => ({
             catalog_product_id: item.catalog_product_id,
             code: item.code,
             description: item.description,
             image_url: item.image_url,
             quantity: item.quantity,
+            table_price: Number(item.table_price ?? item.unit_price ?? 0),
+            discount_percent: Number(item.discount_percent ?? 0),
             unit_price: Number(item.unit_price),
             ipi_percent: Number(item.ipi_percent ?? 0),
             st_percent: Number(item.st_percent ?? 0),
@@ -189,7 +193,7 @@ function OrderDetailPage() {
         <Card>
           <CardHeader className="flex flex-row items-center gap-2 pb-2">
             <Tag className="h-4 w-4 text-muted-foreground" />
-            <CardTitle className="text-sm font-medium">Tabela de preço</CardTitle>
+            <CardTitle className="text-sm font-medium">Política comercial</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-lg font-semibold">

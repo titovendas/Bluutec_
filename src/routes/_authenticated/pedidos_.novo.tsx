@@ -8,19 +8,20 @@ import { listCustomersMerged, queueOrder } from "@/lib/offline-queue";
 import { OrderForm, type FormItem } from "@/components/orders/order-form";
 import type { PriceTable } from "@/lib/price-tables";
 import { readOrderDraft, saveOrderDraft, clearOrderDraft } from "@/lib/order-draft";
+import { computeNetUnitPrice } from "@/lib/price-tables";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/pedidos_/novo")({
   component: NewOrderPage,
   head: () => ({
     meta: [
-      { title: "Novo Pedido | UZZY Ferramentas" },
+      { title: "Novo Pedido | Força de Vendas" },
       {
         name: "description",
         content:
-          "Monte um pedido UZZY com catálogo, tabela de preço, IPI e ST calculados.",
+          "Monte um pedido Bluutec com catálogo, política comercial, descontos, IPI e ST calculados.",
       },
-      { property: "og:title", content: "Novo Pedido | UZZY Ferramentas" },
+      { property: "og:title", content: "Novo Pedido | Força de Vendas" },
       {
         property: "og:description",
         content: "Monte um pedido com catálogo e impostos calculados.",
@@ -46,9 +47,15 @@ function NewOrderPage() {
 
   const [customerId, setCustomerId] = useState(initialDraft?.customerId ?? "");
   const [priceTable, setPriceTable] = useState<PriceTable>(
-    (initialDraft?.priceTable as PriceTable) ?? "varejo_10"
+    (initialDraft?.priceTable as PriceTable) ?? "varejo"
   );
   const [paymentTerm, setPaymentTerm] = useState(initialDraft?.paymentTerm ?? "");
+  const [cashDiscountPercent, setCashDiscountPercent] = useState(
+    initialDraft?.cashDiscountPercent ?? 0
+  );
+  const [pickupDiscountPercent, setPickupDiscountPercent] = useState(
+    initialDraft?.pickupDiscountPercent ?? 0
+  );
   const [items, setItems] = useState<FormItem[]>(initialDraft?.items ?? []);
   const [loading, setLoading] = useState(false);
 
@@ -62,14 +69,30 @@ function NewOrderPage() {
   // Salva o rascunho automaticamente a cada alteração, para não perder o
   // orçamento se sair da página sem querer.
   useEffect(() => {
-    saveOrderDraft({ customerId, priceTable, paymentTerm, items });
-  }, [customerId, priceTable, paymentTerm, items]);
+    saveOrderDraft({
+      customerId,
+      priceTable,
+      paymentTerm,
+      cashDiscountPercent,
+      pickupDiscountPercent,
+      items,
+    });
+  }, [
+    customerId,
+    priceTable,
+    paymentTerm,
+    cashDiscountPercent,
+    pickupDiscountPercent,
+    items,
+  ]);
 
   const handleDiscardDraft = () => {
     clearOrderDraft();
     setCustomerId("");
-    setPriceTable("varejo_10");
+    setPriceTable("varejo");
     setPaymentTerm("");
+    setCashDiscountPercent(0);
+    setPickupDiscountPercent(0);
     setItems([]);
     toast.success("Rascunho descartado");
   };
@@ -90,7 +113,18 @@ function NewOrderPage() {
       status: "orcamento" as any,
       price_table: priceTable,
       payment_term: paymentTerm,
-      items: items.map(({ prices, ...item }) => item),
+      cash_discount_percent: cashDiscountPercent,
+      pickup_discount_percent: pickupDiscountPercent,
+      items: items.map((item) => ({
+        ...item,
+        unit_price: computeNetUnitPrice(
+          item.table_price,
+          priceTable,
+          item.discount_percent,
+          cashDiscountPercent,
+          pickupDiscountPercent
+        ),
+      })),
     };
     const isOnline = typeof navigator === "undefined" || navigator.onLine;
 
@@ -134,7 +168,7 @@ function NewOrderPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Novo orçamento</h1>
           <p className="text-muted-foreground">
-            Selecione a tabela de preço e monte o orçamento pelo catálogo.
+            Selecione a política comercial e monte o orçamento pelo catálogo.
           </p>
         </div>
         {draftRestored && (
@@ -159,6 +193,10 @@ function NewOrderPage() {
           setPriceTable={setPriceTable}
           paymentTerm={paymentTerm}
           setPaymentTerm={setPaymentTerm}
+          cashDiscountPercent={cashDiscountPercent}
+          setCashDiscountPercent={setCashDiscountPercent}
+          pickupDiscountPercent={pickupDiscountPercent}
+          setPickupDiscountPercent={setPickupDiscountPercent}
           items={items}
           setItems={setItems}
         />

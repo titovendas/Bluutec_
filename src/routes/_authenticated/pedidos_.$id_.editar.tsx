@@ -11,17 +11,17 @@ import {
 } from "@/lib/offline-queue";
 import { getCatalogProductsByIdsOfflineAware } from "@/lib/offline-catalog";
 import { OrderForm, type FormItem } from "@/components/orders/order-form";
-import type { PriceTable } from "@/lib/price-tables";
+import { computeNetUnitPrice, type PriceTable } from "@/lib/price-tables";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/pedidos_/$id_/editar")({
   component: EditOrderPage,
   head: ({ params }) => ({
     meta: [
-      { title: `Editar Orçamento #${params.id.slice(0, 8)} | UZZY Ferramentas` },
-      { name: "description", content: "Edite o orçamento UZZY." },
-      { property: "og:title", content: "Editar Orçamento | UZZY Ferramentas" },
-      { property: "og:description", content: "Edite o orçamento UZZY." },
+      { title: `Editar Orçamento #${params.id.slice(0, 8)} | Força de Vendas` },
+      { name: "description", content: "Edite o orçamento Bluutec." },
+      { property: "og:title", content: "Editar Orçamento | Força de Vendas" },
+      { property: "og:description", content: "Edite o orçamento Bluutec." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -47,8 +47,10 @@ function EditOrderPage() {
   });
   const [customerId, setCustomerId] = useState("");
   const [originalStatus, setOriginalStatus] = useState("orcamento");
-  const [priceTable, setPriceTable] = useState<PriceTable>("varejo_10");
+  const [priceTable, setPriceTable] = useState<PriceTable>("varejo");
   const [paymentTerm, setPaymentTerm] = useState("");
+  const [cashDiscountPercent, setCashDiscountPercent] = useState(0);
+  const [pickupDiscountPercent, setPickupDiscountPercent] = useState(0);
   const [items, setItems] = useState<FormItem[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -57,8 +59,10 @@ function EditOrderPage() {
     const order: any = orderData.order;
     setCustomerId(order.customer_id || "");
     setOriginalStatus(order.status || "orcamento");
-    setPriceTable((order.price_table as PriceTable) || "varejo_10");
+    setPriceTable((order.price_table as PriceTable) || "varejo");
     setPaymentTerm(order.payment_term || "");
+    setCashDiscountPercent(Number(order.cash_discount_percent ?? 0));
+    setPickupDiscountPercent(Number(order.pickup_discount_percent ?? 0));
 
     const rawItems = orderData.items;
     setItems(
@@ -68,22 +72,18 @@ function EditOrderPage() {
         description: item.description ?? "",
         image_url: item.image_url ?? null,
         quantity: item.quantity,
-        unit_price: Number(item.unit_price),
+        // Pedidos criados antes da tabela de preços da Bluutec não têm
+        // table_price salvo — nesse caso, usa o próprio unit_price como
+        // provisório até o catálogo real ser buscado abaixo.
+        table_price: Number(item.table_price ?? item.unit_price ?? 0),
+        discount_percent: Number(item.discount_percent ?? 0),
         ipi_percent: Number(item.ipi_percent ?? 0),
         st_percent: Number(item.st_percent ?? 0),
-        // Provisório: até os preços reais do catálogo chegarem (abaixo),
-        // evita que a tabela de preço pareça não fazer nada por um instante.
-        prices: {
-          atacado: Number(item.unit_price),
-          varejo_10: Number(item.unit_price),
-          varejo_75: Number(item.unit_price),
-        },
       }))
     );
 
-    // Busca os preços reais das 3 tabelas no catálogo, para que trocar a
-    // tabela de preço recalcule corretamente também os itens que já
-    // estavam no orçamento (e não só os adicionados depois).
+    // Busca o preço de tabela atual no catálogo, para refletir eventuais
+    // atualizações de preço desde que o orçamento foi criado.
     const ids = rawItems
       .map((item: any) => item.catalog_product_id)
       .filter(Boolean);
@@ -95,11 +95,9 @@ function EditOrderPage() {
             if (!product) return item;
             return {
               ...item,
-              prices: {
-                atacado: Number(product.price_atacado ?? item.unit_price),
-                varejo_10: Number(product.price_varejo_10 ?? item.unit_price),
-                varejo_75: Number(product.price_varejo_75 ?? item.unit_price),
-              },
+              table_price: Number(
+                product.table_price ?? product.price_atacado ?? item.table_price
+              ),
             };
           })
         );
@@ -125,7 +123,18 @@ function EditOrderPage() {
       status: originalStatus as any,
       price_table: priceTable,
       payment_term: paymentTerm,
-      items: items.map(({ prices, ...item }) => item),
+      cash_discount_percent: cashDiscountPercent,
+      pickup_discount_percent: pickupDiscountPercent,
+      items: items.map((item) => ({
+        ...item,
+        unit_price: computeNetUnitPrice(
+          item.table_price,
+          priceTable,
+          item.discount_percent,
+          cashDiscountPercent,
+          pickupDiscountPercent
+        ),
+      })),
     };
 
     const saveLocally = async () => {
@@ -208,6 +217,10 @@ function EditOrderPage() {
           setPriceTable={setPriceTable}
           paymentTerm={paymentTerm}
           setPaymentTerm={setPaymentTerm}
+          cashDiscountPercent={cashDiscountPercent}
+          setCashDiscountPercent={setCashDiscountPercent}
+          pickupDiscountPercent={pickupDiscountPercent}
+          setPickupDiscountPercent={setPickupDiscountPercent}
           items={items}
           setItems={setItems}
         />
