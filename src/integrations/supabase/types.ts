@@ -174,6 +174,7 @@ export type Database = {
           catalog_product_id: string | null
           code: string | null
           description: string | null
+          discount_percent: number
           id: string
           image_url: string | null
           ipi_percent: number
@@ -183,6 +184,7 @@ export type Database = {
           quantity: number
           st_percent: number
           st_value: number
+          table_price: number | null
           total: number
           unit_price: number
         }
@@ -190,6 +192,7 @@ export type Database = {
           catalog_product_id?: string | null
           code?: string | null
           description?: string | null
+          discount_percent?: number
           id?: string
           image_url?: string | null
           ipi_percent?: number
@@ -199,6 +202,7 @@ export type Database = {
           quantity?: number
           st_percent?: number
           st_value?: number
+          table_price?: number | null
           total?: number
           unit_price?: number
         }
@@ -206,6 +210,7 @@ export type Database = {
           catalog_product_id?: string | null
           code?: string | null
           description?: string | null
+          discount_percent?: number
           id?: string
           image_url?: string | null
           ipi_percent?: number
@@ -215,6 +220,7 @@ export type Database = {
           quantity?: number
           st_percent?: number
           st_value?: number
+          table_price?: number | null
           total?: number
           unit_price?: number
         }
@@ -251,11 +257,13 @@ export type Database = {
       }
       orders: {
         Row: {
+          cash_discount_percent: number
           created_at: string
           customer_id: string | null
           id: string
           ipi_total: number
           payment_term: string | null
+          pickup_discount_percent: number
           price_table: string
           seller_id: string | null
           st_total: number
@@ -266,11 +274,13 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          cash_discount_percent?: number
           created_at?: string
           customer_id?: string | null
           id?: string
           ipi_total?: number
           payment_term?: string | null
+          pickup_discount_percent?: number
           price_table?: string
           seller_id?: string | null
           st_total?: number
@@ -281,11 +291,13 @@ export type Database = {
           user_id: string
         }
         Update: {
+          cash_discount_percent?: number
           created_at?: string
           customer_id?: string | null
           id?: string
           ipi_total?: number
           payment_term?: string | null
+          pickup_discount_percent?: number
           price_table?: string
           seller_id?: string | null
           st_total?: number
