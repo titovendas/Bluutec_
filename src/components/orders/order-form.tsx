@@ -30,7 +30,12 @@ import {
 } from "@/components/ui/table";
 import { searchCatalog } from "@/lib/offline-catalog";
 import { formatCurrency } from "@/lib/sales-formatters";
-import { PRICE_TABLES, catalogPrice, type PriceTable } from "@/lib/price-tables";
+import {
+  PRICE_TABLES,
+  catalogTablePrice,
+  computeNetUnitPrice,
+  type PriceTable,
+} from "@/lib/price-tables";
 import { getPaymentTermsOfflineAware } from "@/lib/offline-customers";
 
 /** Mostra sempre com 2 casas decimais e vírgula (padrão BR), ex: 4,80. */
@@ -52,10 +57,10 @@ export type FormItem = {
   description: string;
   image_url: string | null;
   quantity: number;
-  unit_price: number;
+  table_price: number;
+  discount_percent: number;
   ipi_percent: number;
   st_percent: number;
-  prices: { atacado: number; varejo_10: number; varejo_75: number };
 };
 
 type Props = {
@@ -66,6 +71,10 @@ type Props = {
   setPriceTable: (v: PriceTable) => void;
   paymentTerm: string;
   setPaymentTerm: (v: string) => void;
+  cashDiscountPercent: number;
+  setCashDiscountPercent: (v: number) => void;
+  pickupDiscountPercent: number;
+  setPickupDiscountPercent: (v: number) => void;
   items: FormItem[];
   setItems: React.Dispatch<React.SetStateAction<FormItem[]>>;
 };
@@ -78,6 +87,10 @@ export function OrderForm({
   setPriceTable,
   paymentTerm,
   setPaymentTerm,
+  cashDiscountPercent,
+  setCashDiscountPercent,
+  pickupDiscountPercent,
+  setPickupDiscountPercent,
   items,
   setItems,
 }: Props) {
@@ -115,28 +128,33 @@ export function OrderForm({
     [paymentTerms]
   );
 
-  const totals = useMemo(() => {
-    const subtotal = items.reduce((s, i) => s + i.quantity * i.unit_price, 0);
-    const ipi = items.reduce(
-      (s, i) => s + (i.quantity * i.unit_price * i.ipi_percent) / 100,
-      0
+  /** Preço líquido final de um item, com política + desconto do item +
+   * os dois descontos do pedido já aplicados em cadeia. */
+  const netUnitPrice = (item: FormItem) =>
+    computeNetUnitPrice(
+      item.table_price,
+      priceTable,
+      item.discount_percent,
+      cashDiscountPercent,
+      pickupDiscountPercent
     );
-    const st = items.reduce(
-      (s, i) => s + (i.quantity * i.unit_price * i.st_percent) / 100,
-      0
-    );
-    return { subtotal, ipi, st, total: subtotal + ipi + st };
-  }, [items]);
 
-  const changePriceTable = (table: PriceTable) => {
-    setPriceTable(table);
-    setItems((prev) =>
-      prev.map((i) => ({
-        ...i,
-        unit_price: i.prices?.[table] ?? i.unit_price,
-      }))
+  const totals = useMemo(() => {
+    const subtotal = items.reduce(
+      (s, i) => s + i.quantity * netUnitPrice(i),
+      0
     );
-  };
+    const ipi = items.reduce((s, i) => {
+      const unit = netUnitPrice(i);
+      return s + (i.quantity * unit * i.ipi_percent) / 100;
+    }, 0);
+    const st = items.reduce((s, i) => {
+      const unit = netUnitPrice(i);
+      return s + (i.quantity * unit * i.st_percent) / 100;
+    }, 0);
+    return { subtotal, ipi, st, total: subtotal + ipi + st };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, priceTable, cashDiscountPercent, pickupDiscountPercent]);
 
   const addProduct = (product: any, quantity: number) => {
     setItems((prev) => {
@@ -156,14 +174,10 @@ export function OrderForm({
           description: product.description,
           image_url: product.image_url ?? null,
           quantity,
-          unit_price: catalogPrice(product, priceTable),
+          table_price: catalogTablePrice(product),
+          discount_percent: 0,
           ipi_percent: Number(product.ipi_percent ?? 0),
           st_percent: Number(product.st_percent ?? 0),
-          prices: {
-            atacado: Number(product.price_atacado ?? 0),
-            varejo_10: Number(product.price_varejo_10 ?? 0),
-            varejo_75: Number(product.price_varejo_75 ?? 0),
-          },
         },
       ];
     });
@@ -204,10 +218,10 @@ export function OrderForm({
           />
         </div>
         <div className="grid gap-2">
-          <Label>Tabela de preço *</Label>
+          <Label>Política comercial *</Label>
           <Select
             value={priceTable}
-            onValueChange={(v) => changePriceTable(v as PriceTable)}
+            onValueChange={(v) => setPriceTable(v as PriceTable)}
           >
             <SelectTrigger>
               <SelectValue />
@@ -232,6 +246,36 @@ export function OrderForm({
             emptyText="Nenhum prazo cadastrado. Cadastre em Configurações."
           />
         </div>
+        <div className="grid gap-2">
+          <Label>Desconto à vista (%)</Label>
+          <Input
+            type="text"
+            inputMode="decimal"
+            value={formatDecimalInput(cashDiscountPercent)}
+            onFocus={(e) => e.target.select()}
+            onChange={(e) =>
+              setCashDiscountPercent(parseDecimalInput(e.target.value))
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Aplica sobre todos os itens do pedido.
+          </p>
+        </div>
+        <div className="grid gap-2">
+          <Label>Desconto retirada (%)</Label>
+          <Input
+            type="text"
+            inputMode="decimal"
+            value={formatDecimalInput(pickupDiscountPercent)}
+            onFocus={(e) => e.target.select()}
+            onChange={(e) =>
+              setPickupDiscountPercent(parseDecimalInput(e.target.value))
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Aplica sobre todos os itens do pedido.
+          </p>
+        </div>
       </div>
 
       <div className="space-y-4 rounded-md border p-4">
@@ -250,10 +294,11 @@ export function OrderForm({
                 <TableHead className="w-24">Código</TableHead>
                 <TableHead className="w-auto min-w-[160px]">Descrição</TableHead>
                 <TableHead className="w-20">Qtd</TableHead>
-                <TableHead className="w-28">Unitário</TableHead>
+                <TableHead className="w-24">Tabela</TableHead>
+                <TableHead className="w-24">Desc. item (%)</TableHead>
+                <TableHead className="w-28 text-right">Unit. líquido</TableHead>
                 <TableHead className="w-28 text-right">IPI</TableHead>
                 <TableHead className="w-28 text-right">ST</TableHead>
-                <TableHead className="w-32 text-right">Unit. c/ impostos</TableHead>
                 <TableHead className="w-32 text-right">Total</TableHead>
                 <TableHead className="w-12"></TableHead>
               </TableRow>
@@ -261,13 +306,14 @@ export function OrderForm({
             <TableBody>
               {items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
                     Nenhum produto adicionado.
                   </TableCell>
                 </TableRow>
               ) : (
                 items.map((item, index) => {
-                  const base = item.quantity * item.unit_price;
+                  const unit = netUnitPrice(item);
+                  const base = item.quantity * unit;
                   const ipi = (base * item.ipi_percent) / 100;
                   const st = (base * item.st_percent) / 100;
                   return (
@@ -301,22 +347,33 @@ export function OrderForm({
                           className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                         />
                       </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {formatCurrency(item.table_price)}
+                      </TableCell>
                       <TableCell>
                         <Input
                           type="text"
                           inputMode="decimal"
-                          value={formatDecimalInput(item.unit_price)}
+                          value={formatDecimalInput(item.discount_percent)}
                           onFocus={(e) => e.target.select()}
                           onChange={(e) =>
                             setItems((prev) =>
                               prev.map((i, idx) =>
                                 idx === index
-                                  ? { ...i, unit_price: parseDecimalInput(e.target.value) }
+                                  ? {
+                                      ...i,
+                                      discount_percent: parseDecimalInput(
+                                        e.target.value
+                                      ),
+                                    }
                                   : i
                               )
                             )
                           }
                         />
+                      </TableCell>
+                      <TableCell className="text-right text-sm font-semibold">
+                        {formatCurrency(unit)}
                       </TableCell>
                       <TableCell className="text-right text-sm">
                         {formatCurrency(ipi)}
@@ -329,12 +386,6 @@ export function OrderForm({
                         <span className="block text-xs text-muted-foreground">
                           {item.st_percent}%
                         </span>
-                      </TableCell>
-                      <TableCell className="text-right text-sm font-bold text-primary">
-                        {formatCurrency(
-                          item.unit_price *
-                            (1 + (item.ipi_percent + item.st_percent) / 100)
-                        )}
                       </TableCell>
                       <TableCell className="text-right font-medium">
                         {formatCurrency(base + ipi + st)}
@@ -365,7 +416,8 @@ export function OrderForm({
             </p>
           ) : (
             items.map((item, index) => {
-              const base = item.quantity * item.unit_price;
+              const unit = netUnitPrice(item);
+              const base = item.quantity * unit;
               const ipi = (base * item.ipi_percent) / 100;
               const st = (base * item.st_percent) / 100;
               return (
@@ -386,6 +438,9 @@ export function OrderForm({
                       <p className="text-sm font-medium leading-snug">
                         {item.description}
                       </p>
+                      <p className="text-xs text-muted-foreground">
+                        Tabela {formatCurrency(item.table_price)}
+                      </p>
                     </div>
                     <Button
                       type="button"
@@ -398,7 +453,7 @@ export function OrderForm({
                     </Button>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-3 gap-3">
                     <div className="grid gap-1">
                       <Label className="text-xs text-muted-foreground">Qtd</Label>
                       <Input
@@ -420,23 +475,36 @@ export function OrderForm({
                     </div>
                     <div className="grid gap-1">
                       <Label className="text-xs text-muted-foreground">
-                        Unitário
+                        Desc. item (%)
                       </Label>
                       <Input
                         type="text"
                         inputMode="decimal"
-                        value={formatDecimalInput(item.unit_price)}
+                        value={formatDecimalInput(item.discount_percent)}
                         onFocus={(e) => e.target.select()}
                         onChange={(e) =>
                           setItems((prev) =>
                             prev.map((i, idx) =>
                               idx === index
-                                ? { ...i, unit_price: parseDecimalInput(e.target.value) }
+                                ? {
+                                    ...i,
+                                    discount_percent: parseDecimalInput(
+                                      e.target.value
+                                    ),
+                                  }
                                 : i
                             )
                           )
                         }
                       />
+                    </div>
+                    <div className="grid gap-1">
+                      <Label className="text-xs text-muted-foreground">
+                        Unit. líquido
+                      </Label>
+                      <p className="flex h-10 items-center text-sm font-semibold">
+                        {formatCurrency(unit)}
+                      </p>
                     </div>
                   </div>
 
@@ -453,18 +521,7 @@ export function OrderForm({
                       </p>
                       <p>{formatCurrency(st)}</p>
                     </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">
-                        Unit. c/ impostos
-                      </p>
-                      <p className="font-bold text-primary">
-                        {formatCurrency(
-                          item.unit_price *
-                            (1 + (item.ipi_percent + item.st_percent) / 100)
-                        )}
-                      </p>
-                    </div>
-                    <div className="text-right">
+                    <div className="col-span-2 text-right">
                       <p className="text-xs text-muted-foreground">Total</p>
                       <p className="font-medium">
                         {formatCurrency(base + ipi + st)}
@@ -527,8 +584,16 @@ export function OrderForm({
                   <p className="font-medium">{selectedProduct.description}</p>
                   <p className="text-sm text-muted-foreground">
                     Cód. {selectedProduct.code} ·{" "}
-                    {formatCurrency(catalogPrice(selectedProduct, priceTable))} /
-                    un.
+                    {formatCurrency(
+                      computeNetUnitPrice(
+                        catalogTablePrice(selectedProduct),
+                        priceTable,
+                        0,
+                        cashDiscountPercent,
+                        pickupDiscountPercent
+                      )
+                    )}{" "}
+                    / un.
                   </p>
                 </div>
               </div>
@@ -565,7 +630,13 @@ export function OrderForm({
                 Subtotal:{" "}
                 <span className="font-medium text-foreground">
                   {formatCurrency(
-                    catalogPrice(selectedProduct, priceTable) * selectedQty
+                    computeNetUnitPrice(
+                      catalogTablePrice(selectedProduct),
+                      priceTable,
+                      0,
+                      cashDiscountPercent,
+                      pickupDiscountPercent
+                    ) * selectedQty
                   )}
                 </span>
               </p>
@@ -630,7 +701,15 @@ export function OrderForm({
                         </p>
                       </div>
                       <div className="text-right text-sm font-semibold">
-                        {formatCurrency(catalogPrice(p, priceTable))}
+                        {formatCurrency(
+                          computeNetUnitPrice(
+                            catalogTablePrice(p),
+                            priceTable,
+                            0,
+                            cashDiscountPercent,
+                            pickupDiscountPercent
+                          )
+                        )}
                       </div>
                     </div>
                   ))
