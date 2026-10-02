@@ -80,11 +80,13 @@ export type Database = {
           email: string | null
           id: string
           name: string
+          neighborhood: string | null
           phone: string | null
           price_table: string
           state: string | null
           updated_at: string
           user_id: string
+          zip_code: string | null
         }
         Insert: {
           address?: string | null
@@ -94,11 +96,13 @@ export type Database = {
           email?: string | null
           id?: string
           name: string
+          neighborhood?: string | null
           phone?: string | null
           price_table?: string
           state?: string | null
           updated_at?: string
           user_id: string
+          zip_code?: string | null
         }
         Update: {
           address?: string | null
@@ -108,11 +112,13 @@ export type Database = {
           email?: string | null
           id?: string
           name?: string
+          neighborhood?: string | null
           phone?: string | null
           price_table?: string
           state?: string | null
           updated_at?: string
           user_id?: string
+          zip_code?: string | null
         }
         Relationships: []
       }
@@ -202,6 +208,7 @@ export type Database = {
           customer_id: string | null
           id: string
           ipi_total: number
+          payment_term: string | null
           price_table: string
           seller_id: string | null
           st_total: number
@@ -216,6 +223,7 @@ export type Database = {
           customer_id?: string | null
           id?: string
           ipi_total?: number
+          payment_term?: string | null
           price_table?: string
           seller_id?: string | null
           st_total?: number
@@ -230,6 +238,7 @@ export type Database = {
           customer_id?: string | null
           id?: string
           ipi_total?: number
+          payment_term?: string | null
           price_table?: string
           seller_id?: string | null
           st_total?: number
@@ -255,6 +264,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      payment_terms: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          label: string
+          sort_order: number
+          user_id: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          label: string
+          sort_order?: number
+          user_id: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          label?: string
+          sort_order?: number
+          user_id?: string
+        }
+        Relationships: []
       }
       products: {
         Row: {
@@ -341,6 +377,7 @@ export type Database = {
           customer_name: string | null
           id: string | null
           ipi_total: number | null
+          payment_term: string | null
           price_table: string | null
           seller_id: string | null
           seller_name: string | null
