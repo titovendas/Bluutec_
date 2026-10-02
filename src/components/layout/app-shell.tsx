@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
-import uzzyLogo from "@/assets/uzzy-logo.png";
+import bluutecLogo from "@/assets/bluutec-logo.png";
 import { CatalogSyncStatus } from "@/components/layout/catalog-sync-status";
 
 const SIDEBAR_COLLAPSED_KEY = "fv:sidebar-collapsed";
@@ -104,11 +104,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
       >
         {collapsedView ? (
-          <img src={uzzyLogo} alt="UZZY Ferramentas" className="h-7 w-auto" />
+          <img src={bluutecLogo} alt="Bluutec" className="h-6 w-auto" />
         ) : (
-          <img src={uzzyLogo} alt="UZZY Ferramentas" className="h-8 w-auto" />
+          <img src={bluutecLogo} alt="Bluutec" className="h-7 w-auto" />
         )}
-        <span className="sr-only">UZZY Ferramentas</span>
+        <span className="sr-only">Bluutec</span>
       </div>
 
       <nav className="flex-1 space-y-1 p-3">
@@ -170,7 +170,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Mobile header + sheet */}
       <div className="fixed left-0 right-0 top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-card px-4 lg:hidden">
-        <img src={uzzyLogo} alt="UZZY Ferramentas" className="h-8 w-auto" />
+        <img src={bluutecLogo} alt="Bluutec" className="h-7 w-auto" />
 
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
