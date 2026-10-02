@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Settings, CreditCard, ChevronRight } from "lucide-react";
+import { Settings, CreditCard, ChevronRight, Tags } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
 export const Route = createFileRoute("/_authenticated/configuracoes")({
@@ -13,6 +13,12 @@ export const Route = createFileRoute("/_authenticated/configuracoes")({
 });
 
 const sections = [
+  {
+    to: "/configuracoes/tabela-precos",
+    icon: Tags,
+    title: "Tabela de preços",
+    description: "Importar a planilha de produtos, preços e ST por estado.",
+  },
   {
     to: "/configuracoes/prazos-pagamento",
     icon: CreditCard,
