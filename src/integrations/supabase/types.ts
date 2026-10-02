@@ -20,17 +20,21 @@ export type Database = {
           barcode: string | null
           category: string | null
           code: string
+          color: string | null
           created_at: string
           description: string
+          family: string | null
           id: string
           image_url: string | null
           ipi_percent: number
           ncm: string | null
+          package_qty: number | null
           price_atacado: number | null
           price_varejo_10: number | null
           price_varejo_75: number | null
           ref: string | null
           st_percent: number
+          table_price: number | null
           updated_at: string
         }
         Insert: {
@@ -38,17 +42,21 @@ export type Database = {
           barcode?: string | null
           category?: string | null
           code: string
+          color?: string | null
           created_at?: string
           description: string
+          family?: string | null
           id?: string
           image_url?: string | null
           ipi_percent?: number
           ncm?: string | null
+          package_qty?: number | null
           price_atacado?: number | null
           price_varejo_10?: number | null
           price_varejo_75?: number | null
           ref?: string | null
           st_percent?: number
+          table_price?: number | null
           updated_at?: string
         }
         Update: {
@@ -56,17 +64,21 @@ export type Database = {
           barcode?: string | null
           category?: string | null
           code?: string
+          color?: string | null
           created_at?: string
           description?: string
+          family?: string | null
           id?: string
           image_url?: string | null
           ipi_percent?: number
           ncm?: string | null
+          package_qty?: number | null
           price_atacado?: number | null
           price_varejo_10?: number | null
           price_varejo_75?: number | null
           ref?: string | null
           st_percent?: number
+          table_price?: number | null
           updated_at?: string
         }
         Relationships: []
@@ -291,6 +303,41 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      product_st_rates: {
+        Row: {
+          created_at: string
+          id: string
+          product_id: string
+          st_percent: number
+          uf: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          product_id: string
+          st_percent?: number
+          uf: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          product_id?: string
+          st_percent?: number
+          uf?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_st_rates_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_products"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       products: {
         Row: {
