@@ -1,12 +1,12 @@
 {
   "name": "Força de Vendas",
   "short_name": "Força de Vendas",
-  "description": "Sistema de força de vendas UZZY Ferramentas — clientes, catálogo e pedidos.",
+  "description": "Sistema de força de vendas Bluutec — clientes, catálogo e pedidos.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#c81e23",
+  "theme_color": "#008eca",
   "orientation": "portrait-primary",
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
