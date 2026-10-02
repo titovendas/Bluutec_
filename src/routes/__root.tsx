@@ -7,7 +7,6 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import type { ErrorComponentProps } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
@@ -40,7 +39,7 @@ function NotFoundComponent() {
   );
 }
 
-function ErrorComponent({ error, reset }: ErrorComponentProps) {
+function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
   useEffect(() => {
@@ -91,7 +90,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
           "Sistema completo de força de vendas para gerenciar clientes, produtos, vendedores e pedidos.",
       },
       { name: "author", content: "Lovable" },
-      { name: "theme-color", content: "#c81e23" },
+      { name: "theme-color", content: "#008eca" },
       { property: "og:title", content: "Força de Vendas" },
       {
         property: "og:description",
