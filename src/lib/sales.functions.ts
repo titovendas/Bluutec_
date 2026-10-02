@@ -742,6 +742,69 @@ export const getPriceTableSummary = createServerFn({ method: "GET" })
     return { productsWithPrice: count ?? 0 };
   });
 
+// Imagens dos produtos
+//
+// Cada imagem é nomeada com o código do produto (ex: 70032001.jpg). O
+// navegador envia o arquivo em base64; aqui ele é decodificado, salvo no
+// Storage do Supabase (bucket "product-images", substituindo se já
+// existir uma imagem com o mesmo código) e o link público é gravado no
+// produto correspondente.
+const uploadProductImageSchema = z.object({
+  code: z.string().min(1),
+  fileName: z.string().min(1),
+  contentType: z.string().min(1),
+  base64Data: z.string().min(1),
+});
+
+export const uploadProductImage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) => uploadProductImageSchema.parse(data))
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
+
+    const extMatch = data.fileName.match(/\.[a-zA-Z0-9]+$/);
+    const ext = extMatch ? extMatch[0].toLowerCase() : "";
+    const path = `${data.code}${ext}`;
+    const binary = Buffer.from(data.base64Data, "base64");
+
+    const { error: uploadError } = await supabase.storage
+      .from("product-images")
+      .upload(path, binary, {
+        contentType: data.contentType,
+        upsert: true,
+      });
+    if (uploadError) throw new Error(uploadError.message);
+
+    const { data: publicUrlData } = supabase.storage
+      .from("product-images")
+      .getPublicUrl(path);
+    // "?v=" evita que o navegador mostre a foto antiga em cache quando a
+    // imagem de um código é substituída.
+    const imageUrl = `${publicUrlData.publicUrl}?v=${Date.now()}`;
+
+    const { data: updated, error: updateError } = await supabase
+      .from("catalog_products")
+      .update({ image_url: imageUrl })
+      .eq("code", data.code)
+      .select("id, code")
+      .maybeSingle();
+    if (updateError) throw new Error(updateError.message);
+
+    return { code: data.code, image_url: imageUrl, matched: !!updated };
+  });
+
+export const listCatalogProductCodes = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase } = context;
+    const { data, error } = await supabase
+      .from("catalog_products")
+      .select("id, code, description, image_url")
+      .order("code");
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
 // Catalog
 export const listCatalog = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
