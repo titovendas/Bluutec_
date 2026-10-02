@@ -647,7 +647,10 @@ export const upsertOrder = createServerFn({ method: "POST" })
 // produtos (não é um dado faltando).
 const priceTableProductRowSchema = z.object({
   code: z.string().min(1),
-  description: z.string().min(1),
+  // Por enquanto só código e preço são obrigatórios — algumas linhas da
+  // planilha vêm sem descrição preenchida, e isso não pode travar a
+  // importação inteira.
+  description: z.string().optional().default(""),
   color: z.string().optional().or(z.literal("")),
   package_qty: z.coerce.number().int().min(0).optional(),
   table_price: z.coerce.number().min(0),
