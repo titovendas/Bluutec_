@@ -293,6 +293,7 @@ function PriceTableSettingsPage() {
   const [uploadSummary, setUploadSummary] = useState<{
     sent: number;
     notFound: string[];
+    failed: { code: string; error: string }[];
   } | null>(null);
 
   const handleImagesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -320,6 +321,7 @@ function PriceTableSettingsPage() {
     setUploadingImages(true);
     setUploadProgress({ done: 0, total: imageRows.length });
     const notFound: string[] = [];
+    const failed: { code: string; error: string }[] = [];
     let sent = 0;
 
     for (const row of imageRows) {
@@ -335,14 +337,18 @@ function PriceTableSettingsPage() {
         });
         if (result.matched) sent++;
         else notFound.push(row.code);
-      } catch {
-        notFound.push(row.code);
+      } catch (err: any) {
+        // Um erro no envio (ex: o espaço de armazenamento das imagens
+        // ainda não foi criado no Supabase) é bem diferente de "código
+        // não encontrado" — mostrar separado evita confundir as duas
+        // coisas na hora de resolver.
+        failed.push({ code: row.code, error: err?.message || "Erro desconhecido" });
       }
       setUploadProgress((p) => ({ ...p, done: p.done + 1 }));
     }
 
     setUploadingImages(false);
-    setUploadSummary({ sent, notFound });
+    setUploadSummary({ sent, notFound, failed });
     setImageRows((prev) => {
       prev.forEach((r) => URL.revokeObjectURL(r.previewUrl));
       return [];
@@ -350,11 +356,11 @@ function PriceTableSettingsPage() {
     queryClient.invalidateQueries({ queryKey: ["catalog-product-codes"] });
     queryClient.invalidateQueries({ queryKey: ["catalog"] });
 
-    if (notFound.length === 0) {
+    if (notFound.length === 0 && failed.length === 0) {
       toast.success(`${sent} imagem(ns) enviada(s) com sucesso.`);
     } else {
       toast.error(
-        `${sent} enviada(s) · ${notFound.length} sem produto correspondente.`
+        `${sent} enviada(s) · ${notFound.length} sem produto · ${failed.length} com erro de envio.`
       );
     }
   };
@@ -543,13 +549,34 @@ function PriceTableSettingsPage() {
           )}
 
           {uploadSummary && (
-            <div className="space-y-1 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              <p>{uploadSummary.sent} imagem(ns) vinculada(s) com sucesso.</p>
-              {uploadSummary.notFound.length > 0 && (
-                <p className="text-amber-700">
-                  Sem produto correspondente:{" "}
-                  {uploadSummary.notFound.join(", ")}
-                </p>
+            <div className="space-y-2">
+              <div className="space-y-1 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                <p>{uploadSummary.sent} imagem(ns) vinculada(s) com sucesso.</p>
+                {uploadSummary.notFound.length > 0 && (
+                  <p className="text-amber-700">
+                    Sem produto correspondente:{" "}
+                    {uploadSummary.notFound.join(", ")}
+                  </p>
+                )}
+              </div>
+              {uploadSummary.failed.length > 0 && (
+                <div className="space-y-1 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+                  <p className="font-medium">
+                    {uploadSummary.failed.length} imagem(ns) com erro no envio
+                    (não é problema de código):
+                  </p>
+                  {uploadSummary.failed.slice(0, 5).map((f) => (
+                    <p key={f.code} className="text-xs">
+                      {f.code}: {f.error}
+                    </p>
+                  ))}
+                  {uploadSummary.failed.length > 5 && (
+                    <p className="text-xs">
+                      + {uploadSummary.failed.length - 5} outra(s) com o
+                      mesmo tipo de erro.
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           )}
