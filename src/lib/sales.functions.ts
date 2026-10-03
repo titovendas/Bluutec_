@@ -808,6 +808,91 @@ export const listCatalogProductCodes = createServerFn({ method: "GET" })
     return data ?? [];
   });
 
+/**
+ * Remove a imagem de um produto: apaga o arquivo do armazenamento (se
+ * conseguir identificar o caminho) e limpa o vínculo no produto. Um erro
+ * ao apagar do armazenamento não impede de desvincular — o importante é
+ * o produto deixar de mostrar a foto errada.
+ */
+export const deleteProductImage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) => z.object({ code: z.string().min(1) }).parse(data))
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
+
+    const { data: product, error } = await supabase
+      .from("catalog_products")
+      .select("id, image_url")
+      .eq("code", data.code)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!product) throw new Error("Produto não encontrado.");
+
+    if (product.image_url) {
+      const marker = "/product-images/";
+      const idx = product.image_url.indexOf(marker);
+      if (idx !== -1) {
+        let path = product.image_url.slice(idx + marker.length);
+        const qIdx = path.indexOf("?");
+        if (qIdx !== -1) path = path.slice(0, qIdx);
+        await supabase.storage.from("product-images").remove([path]);
+      }
+    }
+
+    const { error: updateError } = await supabase
+      .from("catalog_products")
+      .update({ image_url: null })
+      .eq("id", product.id);
+    if (updateError) throw new Error(updateError.message);
+
+    return { code: data.code };
+  });
+
+/**
+ * Move a imagem de um produto (fromCode) para outro (toCode) — usado
+ * quando a foto foi carregada com o código errado. O produto de origem
+ * fica sem imagem.
+ */
+export const reassignProductImage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) =>
+    z
+      .object({ fromCode: z.string().min(1), toCode: z.string().min(1) })
+      .parse(data)
+  )
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
+
+    const { data: fromProduct, error: fromError } = await supabase
+      .from("catalog_products")
+      .select("id, image_url")
+      .eq("code", data.fromCode)
+      .maybeSingle();
+    if (fromError) throw new Error(fromError.message);
+    if (!fromProduct?.image_url) {
+      throw new Error("Esse produto não tem imagem para mover.");
+    }
+
+    const { data: toProduct, error: toError } = await supabase
+      .from("catalog_products")
+      .update({ image_url: fromProduct.image_url })
+      .eq("code", data.toCode)
+      .select("id, code")
+      .maybeSingle();
+    if (toError) throw new Error(toError.message);
+    if (!toProduct) {
+      throw new Error(`Código "${data.toCode}" não encontrado no catálogo.`);
+    }
+
+    const { error: clearError } = await supabase
+      .from("catalog_products")
+      .update({ image_url: null })
+      .eq("id", fromProduct.id);
+    if (clearError) throw new Error(clearError.message);
+
+    return { toCode: toProduct.code };
+  });
+
 // Catalog
 export const listCatalog = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
