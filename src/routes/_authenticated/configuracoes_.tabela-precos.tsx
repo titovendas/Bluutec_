@@ -9,6 +9,8 @@ import {
   Tags,
   CheckCircle2,
   ImagePlus,
+  ChevronDown,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,13 +35,21 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import {
   importPriceTable,
   getPriceTableSummary,
   listCatalogProductCodes,
   uploadProductImage,
+  deleteProductImage,
+  reassignProductImage,
 } from "@/lib/sales.functions";
 import { toast } from "sonner";
 
@@ -367,6 +377,64 @@ function PriceTableSettingsPage() {
 
   const matchedCount = imageRows.filter((r) => codeToProduct.has(r.code)).length;
 
+  // --- Painel retrátil: imagens já cadastradas (editar código / remover) ---
+  const [imagesListOpen, setImagesListOpen] = useState(false);
+  const [codeEdits, setCodeEdits] = useState<Record<string, string>>({});
+  const [savingCodeFor, setSavingCodeFor] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    code: string;
+    description: string;
+  } | null>(null);
+  const [deletingImage, setDeletingImage] = useState(false);
+
+  const productsWithImages = useMemo(
+    () =>
+      (catalogProducts as any[])
+        .filter((p) => !!p.image_url)
+        .sort((a, b) => a.code.localeCompare(b.code)),
+    [catalogProducts]
+  );
+
+  const handleSaveCode = async (product: any) => {
+    const newCode = (codeEdits[product.id] ?? product.code).trim();
+    if (!newCode || newCode === product.code) return;
+    setSavingCodeFor(product.id);
+    try {
+      const result = await reassignProductImage({
+        data: { fromCode: product.code, toCode: newCode },
+      });
+      toast.success(`Imagem movida para o código ${result.toCode}.`);
+      setCodeEdits((prev) => {
+        const next = { ...prev };
+        delete next[product.id];
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: ["catalog-product-codes"] });
+      queryClient.invalidateQueries({ queryKey: ["catalog"] });
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao mover a imagem.");
+    } finally {
+      setSavingCodeFor(null);
+    }
+  };
+
+  const handleConfirmDeleteImage = async () => {
+    if (!deleteTarget) return;
+    setDeletingImage(true);
+    try {
+      await deleteProductImage({ data: { code: deleteTarget.code } });
+      toast.success("Imagem removida.");
+      setDeleteTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["catalog-product-codes"] });
+      queryClient.invalidateQueries({ queryKey: ["catalog"] });
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao remover a imagem.");
+    } finally {
+      setDeletingImage(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -584,6 +652,113 @@ function PriceTableSettingsPage() {
       </Card>
 
       <Card>
+        <Collapsible open={imagesListOpen} onOpenChange={setImagesListOpen}>
+          <CollapsibleTrigger asChild>
+            <button type="button" className="flex w-full items-center justify-between p-6 text-left">
+              <div>
+                <CardTitle className="text-base">Imagens cadastradas</CardTitle>
+                <CardDescription>
+                  {productsWithImages.length} produto(s) com foto — corrija o
+                  código ou remova se alguma foi carregada errada.
+                </CardDescription>
+              </div>
+              <ChevronDown
+                className={cn(
+                  "h-5 w-5 shrink-0 text-muted-foreground transition-transform",
+                  imagesListOpen && "rotate-180"
+                )}
+              />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="pt-0">
+              <div className="max-h-96 overflow-y-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-14">Foto</TableHead>
+                      <TableHead>Código</TableHead>
+                      <TableHead>Produto</TableHead>
+                      <TableHead className="w-28 text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {productsWithImages.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={4} className="h-16 text-center text-muted-foreground">
+                          Nenhuma imagem cadastrada ainda.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      productsWithImages.map((p: any) => {
+                        const editedCode = codeEdits[p.id] ?? p.code;
+                        const dirty = editedCode.trim() !== p.code;
+                        return (
+                          <TableRow key={p.id}>
+                            <TableCell>
+                              <img
+                                src={p.image_url}
+                                alt={p.description}
+                                className="h-10 w-10 rounded object-cover"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                value={editedCode}
+                                onChange={(e) =>
+                                  setCodeEdits((prev) => ({
+                                    ...prev,
+                                    [p.id]: e.target.value,
+                                  }))
+                                }
+                                className="h-8 w-36 font-mono text-xs"
+                              />
+                            </TableCell>
+                            <TableCell className="max-w-[200px] truncate text-sm">
+                              {p.description}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex justify-end gap-1">
+                                {dirty && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleSaveCode(p)}
+                                    disabled={savingCodeFor === p.id}
+                                  >
+                                    {savingCodeFor === p.id ? "..." : "Mover"}
+                                  </Button>
+                                )}
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() =>
+                                    setDeleteTarget({
+                                      id: p.id,
+                                      code: p.code,
+                                      description: p.description,
+                                    })
+                                  }
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </CollapsibleContent>
+        </Collapsible>
+      </Card>
+
+      <Card>
         <CardContent className="space-y-1 p-4 text-sm text-muted-foreground">
           <p>
             <strong>Estados sem alíquota de ST na planilha</strong> são
@@ -665,6 +840,33 @@ function PriceTableSettingsPage() {
             </Button>
             <Button onClick={handleConfirmImport} disabled={importing}>
               {importing ? "Importando..." : "Confirmar importação"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Remover imagem</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {deleteTarget &&
+              `Remover a foto do produto ${deleteTarget.code} — ${deleteTarget.description}?`}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmDeleteImage}
+              disabled={deletingImage}
+            >
+              {deletingImage ? "Removendo..." : "Remover"}
             </Button>
           </DialogFooter>
         </DialogContent>
