@@ -30,6 +30,7 @@ export type Database = {
           ncm: string | null
           package_qty: number | null
           price_atacado: number | null
+          price_updated_at: string | null
           price_varejo_10: number | null
           price_varejo_75: number | null
           ref: string | null
@@ -52,6 +53,7 @@ export type Database = {
           ncm?: string | null
           package_qty?: number | null
           price_atacado?: number | null
+          price_updated_at?: string | null
           price_varejo_10?: number | null
           price_varejo_75?: number | null
           ref?: string | null
@@ -74,12 +76,34 @@ export type Database = {
           ncm?: string | null
           package_qty?: number | null
           price_atacado?: number | null
+          price_updated_at?: string | null
           price_varejo_10?: number | null
           price_varejo_75?: number | null
           ref?: string | null
           st_percent?: number
           table_price?: number | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      price_table_imports: {
+        Row: {
+          file_name: string
+          id: string
+          imported_at: string
+          products_count: number
+        }
+        Insert: {
+          file_name: string
+          id?: string
+          imported_at?: string
+          products_count?: number
+        }
+        Update: {
+          file_name?: string
+          id?: string
+          imported_at?: string
+          products_count?: number
         }
         Relationships: []
       }
