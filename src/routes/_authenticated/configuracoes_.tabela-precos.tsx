@@ -11,6 +11,9 @@ import {
   ImagePlus,
   ChevronDown,
   Trash2,
+  History,
+  ListChecks,
+  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,17 +39,29 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
   importPriceTable,
   getPriceTableSummary,
+  listPriceTableImports,
+  deletePriceTableImport,
   listCatalogProductCodes,
+  updateCatalogProduct,
+  deleteCatalogProduct,
   uploadProductImage,
   deleteProductImage,
   reassignProductImage,
@@ -68,152 +83,53 @@ export const Route = createFileRoute(
   }),
 });
 
-type ProductRow = {
-  code: string;
-  description: string;
-  color: string;
-  package_qty?: number;
-  table_price: number;
-  family: string;
-};
+// --- Utilidades ---
 
-type StRow = {
-  code: string;
-  uf: string;
-  st_percent: number;
-};
-
-type ParsedPriceTable = {
-  products: ProductRow[];
-  stRates: StRow[];
-  missingGeral: boolean;
-  missingTabelaSt: boolean;
-};
-
-/** Remove acentos e deixa maiúsculo, para comparar cabeçalhos sem depender
- * de acentuação exata (ex: "Descrição" ou "DESCRICAO" batem igual). */
-function normalizeHeader(value: unknown): string {
-  return String(value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toUpperCase();
-}
-
-/** Acha a linha de cabeçalho de uma aba (a linha que contém "CÓDIGO") e
- * devolve os cabeçalhos normalizados + as linhas de dados abaixo dela. */
-function findHeaderAndRows(sheet: XLSX.WorkSheet) {
-  const raw: any[][] = XLSX.utils.sheet_to_json(sheet, {
-    header: 1,
-    defval: "",
-    blankrows: false,
+function formatDateTime(iso: string | null | undefined) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
-  const headerIndex = raw.findIndex((row) =>
-    row.some((cell) => normalizeHeader(cell) === "CODIGO")
-  );
-  const headerRow = headerIndex === -1 ? undefined : raw[headerIndex];
-  if (!headerRow) return { headers: [] as string[], rows: [] as any[][] };
-  const headers = headerRow.map((h) => normalizeHeader(h));
-  const rows = raw.slice(headerIndex + 1);
-  return { headers, rows };
 }
 
-const KNOWN_UFS = [
-  "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
-  "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC",
-  "SP", "SE", "TO",
+function formatCurrency(value: number) {
+  return (value || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+}
+
+function toNumber(value: any): number {
+  if (typeof value === "number") return value;
+  const n = Number(String(value ?? "").trim().replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Converte um índice de coluna (0, 1, 2...) em letra (A, B, C... AA, AB...). */
+function columnLetter(index: number): string {
+  let letter = "";
+  let n = index;
+  do {
+    letter = String.fromCharCode(65 + (n % 26)) + letter;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return letter;
+}
+
+type ColumnField = "code" | "description" | "family" | "color" | "package_qty" | "table_price";
+
+const COLUMN_FIELDS: { key: ColumnField; label: string; required: boolean }[] = [
+  { key: "code", label: "Código", required: true },
+  { key: "description", label: "Descrição", required: false },
+  { key: "family", label: "Família", required: false },
+  { key: "color", label: "Cor", required: false },
+  { key: "package_qty", label: "Embalagem", required: false },
+  { key: "table_price", label: "Preço unitário", required: true },
 ];
-
-function parseWorkbook(data: ArrayBuffer): ParsedPriceTable {
-  const workbook = XLSX.read(data, { type: "array" });
-  const sheetName = (name: string) =>
-    workbook.SheetNames.find((n) => normalizeHeader(n) === normalizeHeader(name));
-
-  const geralName = sheetName("GERAL");
-  const stName = sheetName("TABELA ST");
-  const geralSheet = geralName ? workbook.Sheets[geralName] : undefined;
-  const stSheet = stName ? workbook.Sheets[stName] : undefined;
-
-  const products: ProductRow[] = [];
-  if (geralSheet) {
-    const { headers, rows } = findHeaderAndRows(geralSheet);
-    const idx = (label: string) => headers.indexOf(label);
-    const codeIdx = idx("CODIGO");
-    const descIdx = idx("DESCRICAO");
-    const colorIdx = idx("COR");
-    const packIdx = idx("EMBALAGEM");
-    const priceIdx = idx("TABELA");
-    const familyIdx = idx("FAMILIA");
-
-    for (const row of rows) {
-      const code = String(row[codeIdx] ?? "").trim();
-      if (!code) continue;
-      const price = Number(row[priceIdx]);
-      const packRaw = row[packIdx];
-      const product: ProductRow = {
-        code,
-        description: String(row[descIdx] ?? "").trim(),
-        color: String(row[colorIdx] ?? "").trim(),
-        table_price: Number.isFinite(price) ? price : 0,
-        family: String(row[familyIdx] ?? "").trim(),
-      };
-      if (packRaw !== "" && packRaw !== undefined && packRaw !== null) {
-        const packNum = Number(packRaw);
-        if (Number.isFinite(packNum)) product.package_qty = packNum;
-      }
-      products.push(product);
-    }
-  }
-
-  const stRates: StRow[] = [];
-  if (stSheet) {
-    const { headers, rows } = findHeaderAndRows(stSheet);
-    const codeIdx = headers.indexOf("CODIGO");
-    const ufColumns = headers
-      .map((h, i) => ({ h, i }))
-      .filter(({ h, i }) => i !== codeIdx && KNOWN_UFS.includes(h));
-
-    for (const row of rows) {
-      const code = String(row[codeIdx] ?? "").trim();
-      if (!code) continue;
-      for (const { h, i } of ufColumns) {
-        const raw = row[i];
-        if (raw === "" || raw === undefined || raw === null) continue;
-        const percent = Number(raw);
-        if (!Number.isFinite(percent)) continue;
-        stRates.push({ code, uf: h, st_percent: percent * 100 });
-      }
-    }
-  }
-
-  return {
-    products,
-    stRates,
-    missingGeral: !geralName,
-    missingTabelaSt: !stName,
-  };
-}
-
-/** Converte um arquivo escolhido no navegador para base64 (sem o prefixo
- * "data:image/...;base64,"), pra mandar pro servidor. */
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.split(",")[1] ?? "");
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-type ImageRow = {
-  file: File;
-  fileName: string;
-  code: string;
-  previewUrl: string;
-};
 
 function PriceTableSettingsPage() {
   const queryClient = useQueryClient();
@@ -222,35 +138,71 @@ function PriceTableSettingsPage() {
     queryFn: () => getPriceTableSummary(),
   });
 
+  // --- Importar planilha (assistente de mapeamento de colunas) ---
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [fileName, setFileName] = useState("");
-  const [parsed, setParsed] = useState<ParsedPriceTable | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
+  const [selectedSheet, setSelectedSheet] = useState("");
+  const [allRows, setAllRows] = useState<any[][]>([]);
+  const [headerRow, setHeaderRow] = useState(1);
+  const [columnMap, setColumnMap] = useState<Record<ColumnField, number | null>>({
+    code: null,
+    description: null,
+    family: null,
+    color: null,
+    package_qty: null,
+    table_price: null,
+  });
   const [importing, setImporting] = useState(false);
-  const [lastResult, setLastResult] = useState<{
-    importedProducts: number;
-    importedStRates: number;
-  } | null>(null);
 
   const isOnline = typeof navigator === "undefined" || navigator.onLine;
+
+  const readSheet = (workbook: XLSX.WorkBook, sheetName: string) => {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) {
+      setAllRows([]);
+      return;
+    }
+    const raw: any[][] = XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      defval: "",
+      blankrows: false,
+    });
+    setAllRows(raw);
+  };
 
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
       const buffer = await file.arrayBuffer();
-      const result = parseWorkbook(buffer);
-      if (result.missingGeral) {
-        toast.error('Não encontrei uma aba "GERAL" nessa planilha.');
+      const workbook = XLSX.read(buffer, { type: "array" });
+      if (workbook.SheetNames.length === 0) {
+        toast.error("Essa planilha não tem nenhuma aba.");
         return;
       }
-      if (result.products.length === 0) {
-        toast.error('Não encontrei produtos na aba "GERAL" (procure a coluna CÓDIGO).');
+      const firstSheet = workbook.SheetNames[0];
+      if (!firstSheet) {
+        toast.error("Essa planilha não tem nenhuma aba.");
         return;
       }
       setFileName(file.name);
-      setParsed(result);
-      setConfirmOpen(true);
+      setSheetNames(workbook.SheetNames);
+      setSelectedSheet(firstSheet);
+      readSheet(workbook, firstSheet);
+      setHeaderRow(1);
+      setColumnMap({
+        code: null,
+        description: null,
+        family: null,
+        color: null,
+        package_qty: null,
+        table_price: null,
+      });
+      // guarda o workbook pra poder trocar de aba sem reler o arquivo
+      (window as any).__priceTableWorkbook = workbook;
+      setWizardOpen(true);
     } catch {
       toast.error("Não consegui abrir esse arquivo. Confira se é um .xlsx válido.");
     } finally {
@@ -258,26 +210,81 @@ function PriceTableSettingsPage() {
     }
   };
 
+  const handleSheetChange = (sheetName: string) => {
+    setSelectedSheet(sheetName);
+    const workbook = (window as any).__priceTableWorkbook as XLSX.WorkBook | undefined;
+    if (workbook) readSheet(workbook, sheetName);
+    setHeaderRow(1);
+    setColumnMap({
+      code: null,
+      description: null,
+      family: null,
+      color: null,
+      package_qty: null,
+      table_price: null,
+    });
+  };
+
+  const columnCount = useMemo(
+    () => Math.max(0, ...allRows.slice(0, 30).map((r) => r.length)),
+    [allRows]
+  );
+  const headerRowIndex = headerRow - 1;
+  const headerCells = allRows[headerRowIndex] ?? [];
+  const dataRows = useMemo(
+    () => allRows.slice(headerRowIndex + 1),
+    [allRows, headerRowIndex]
+  );
+
+  const columnOptionLabel = (colIndex: number) => {
+    const headerText = String(headerCells[colIndex] ?? "").trim();
+    return headerText
+      ? `${columnLetter(colIndex)} — ${headerText}`
+      : `Coluna ${columnLetter(colIndex)}`;
+  };
+
+  const previewProducts = useMemo(() => {
+    if (columnMap.code === null) return [];
+    return dataRows
+      .map((row) => {
+        const code = String(row[columnMap.code as number] ?? "").trim();
+        if (!code) return null;
+        return {
+          code,
+          description:
+            columnMap.description !== null
+              ? String(row[columnMap.description] ?? "").trim()
+              : "",
+          family:
+            columnMap.family !== null ? String(row[columnMap.family] ?? "").trim() : "",
+          color:
+            columnMap.color !== null ? String(row[columnMap.color] ?? "").trim() : "",
+          package_qty:
+            columnMap.package_qty !== null
+              ? toNumber(row[columnMap.package_qty])
+              : undefined,
+          table_price:
+            columnMap.table_price !== null ? toNumber(row[columnMap.table_price]) : 0,
+        };
+      })
+      .filter((p): p is NonNullable<typeof p> => !!p);
+  }, [dataRows, columnMap]);
+
+  const canImport = columnMap.code !== null && columnMap.table_price !== null;
+
   const handleConfirmImport = async () => {
-    if (!parsed) return;
+    if (!canImport || previewProducts.length === 0) return;
     setImporting(true);
     try {
       const result = await importPriceTable({
-        data: { products: parsed.products, stRates: parsed.stRates },
+        data: { fileName, products: previewProducts },
       });
-      toast.success(
-        `${result.importedProducts} produto(s) importado(s)${
-          result.importedStRates > 0
-            ? ` · ${result.importedStRates} alíquota(s) de ST`
-            : ""
-        }.`
-      );
-      setLastResult(result);
-      setConfirmOpen(false);
-      setParsed(null);
+      toast.success(`${result.importedProducts} produto(s) importado(s).`);
+      setWizardOpen(false);
       queryClient.invalidateQueries({ queryKey: ["price-table-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      queryClient.invalidateQueries({ queryKey: ["price-table-imports"] });
       queryClient.invalidateQueries({ queryKey: ["catalog-product-codes"] });
+      queryClient.invalidateQueries({ queryKey: ["catalog"] });
     } catch (err: any) {
       toast.error(err.message || "Erro ao importar a planilha.");
     } finally {
@@ -285,16 +292,149 @@ function PriceTableSettingsPage() {
     }
   };
 
-  // --- Imagens dos produtos ---
+  // --- Histórico de importações ---
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const { data: importHistory = [] } = useQuery({
+    queryKey: ["price-table-imports"],
+    queryFn: () => listPriceTableImports(),
+  });
+  const [deleteImportTarget, setDeleteImportTarget] = useState<{
+    id: string;
+    file_name: string;
+  } | null>(null);
+
+  const handleDeleteImportLog = async () => {
+    if (!deleteImportTarget) return;
+    try {
+      await deletePriceTableImport({ data: { id: deleteImportTarget.id } });
+      toast.success("Registro removido do histórico.");
+      setDeleteImportTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["price-table-imports"] });
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao remover do histórico.");
+    }
+  };
+
+  // --- Produtos (editar / excluir itens já importados) ---
   const { data: catalogProducts = [] } = useQuery({
     queryKey: ["catalog-product-codes"],
     queryFn: () => listCatalogProductCodes(),
   });
+  const [productsOpen, setProductsOpen] = useState(false);
+  const [productSearch, setProductSearch] = useState("");
+  const [productEdits, setProductEdits] = useState<Record<string, Record<string, any>>>(
+    {}
+  );
+  const [savingProductId, setSavingProductId] = useState<string | null>(null);
+  const [deleteProductTarget, setDeleteProductTarget] = useState<{
+    id: string;
+    code: string;
+    description: string;
+  } | null>(null);
+  const [deletingProduct, setDeletingProduct] = useState(false);
+
+  const filteredProducts = useMemo(() => {
+    const term = productSearch.trim().toLowerCase();
+    const list = catalogProducts as any[];
+    if (!term) return list;
+    return list.filter(
+      (p) =>
+        p.code?.toLowerCase().includes(term) ||
+        p.description?.toLowerCase().includes(term)
+    );
+  }, [catalogProducts, productSearch]);
+
+  const getFieldValue = (product: any, field: string) =>
+    productEdits[product.id]?.[field] ?? product[field] ?? "";
+
+  const setFieldValue = (productId: string, field: string, value: any) => {
+    setProductEdits((prev) => ({
+      ...prev,
+      [productId]: { ...prev[productId], [field]: value },
+    }));
+  };
+
+  const isProductDirty = (product: any) => !!productEdits[product.id];
+
+  const handleSaveProduct = async (product: any) => {
+    const edits = productEdits[product.id] as Record<string, any> | undefined;
+    if (!edits) return;
+    setSavingProductId(product.id);
+    try {
+      await updateCatalogProduct({
+        data: {
+          id: product.id,
+          ...(edits["description"] !== undefined && {
+            description: edits["description"],
+          }),
+          ...(edits["family"] !== undefined && { family: edits["family"] }),
+          ...(edits["color"] !== undefined && { color: edits["color"] }),
+          ...(edits["package_qty"] !== undefined && {
+            package_qty: toNumber(edits["package_qty"]),
+          }),
+          ...(edits["table_price"] !== undefined && {
+            table_price: toNumber(edits["table_price"]),
+          }),
+        },
+      });
+      toast.success(`Produto ${product.code} atualizado.`);
+      setProductEdits((prev) => {
+        const next = { ...prev };
+        delete next[product.id];
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: ["catalog-product-codes"] });
+      queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      queryClient.invalidateQueries({ queryKey: ["price-table-summary"] });
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao salvar o produto.");
+    } finally {
+      setSavingProductId(null);
+    }
+  };
+
+  const handleConfirmDeleteProduct = async () => {
+    if (!deleteProductTarget) return;
+    setDeletingProduct(true);
+    try {
+      await deleteCatalogProduct({ data: { id: deleteProductTarget.id } });
+      toast.success("Produto excluído.");
+      setDeleteProductTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["catalog-product-codes"] });
+      queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      queryClient.invalidateQueries({ queryKey: ["price-table-summary"] });
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao excluir o produto.");
+    } finally {
+      setDeletingProduct(false);
+    }
+  };
+
+  // --- Imagens dos produtos (upload em massa) ---
   const codeToProduct = useMemo(() => {
     const map = new Map<string, any>();
     for (const p of catalogProducts as any[]) map.set(p.code, p);
     return map;
   }, [catalogProducts]);
+
+  type ImageRow = {
+    file: File;
+    fileName: string;
+    code: string;
+    previewUrl: string;
+  };
+
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve(result.split(",")[1] ?? "");
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
 
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [imageRows, setImageRows] = useState<ImageRow[]>([]);
@@ -321,9 +461,7 @@ function PriceTableSettingsPage() {
   };
 
   const updateImageCode = (index: number, code: string) => {
-    setImageRows((prev) =>
-      prev.map((r, i) => (i === index ? { ...r, code } : r))
-    );
+    setImageRows((prev) => prev.map((r, i) => (i === index ? { ...r, code } : r)));
   };
 
   const handleUploadImages = async () => {
@@ -348,10 +486,6 @@ function PriceTableSettingsPage() {
         if (result.matched) sent++;
         else notFound.push(row.code);
       } catch (err: any) {
-        // Um erro no envio (ex: o espaço de armazenamento das imagens
-        // ainda não foi criado no Supabase) é bem diferente de "código
-        // não encontrado" — mostrar separado evita confundir as duas
-        // coisas na hora de resolver.
         failed.push({ code: row.code, error: err?.message || "Erro desconhecido" });
       }
       setUploadProgress((p) => ({ ...p, done: p.done + 1 }));
@@ -377,11 +511,11 @@ function PriceTableSettingsPage() {
 
   const matchedCount = imageRows.filter((r) => codeToProduct.has(r.code)).length;
 
-  // --- Painel retrátil: imagens já cadastradas (editar código / remover) ---
+  // --- Imagens cadastradas (mover código / remover) ---
   const [imagesListOpen, setImagesListOpen] = useState(false);
   const [codeEdits, setCodeEdits] = useState<Record<string, string>>({});
   const [savingCodeFor, setSavingCodeFor] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<{
+  const [deleteImageTarget, setDeleteImageTarget] = useState<{
     id: string;
     code: string;
     description: string;
@@ -420,12 +554,12 @@ function PriceTableSettingsPage() {
   };
 
   const handleConfirmDeleteImage = async () => {
-    if (!deleteTarget) return;
+    if (!deleteImageTarget) return;
     setDeletingImage(true);
     try {
-      await deleteProductImage({ data: { code: deleteTarget.code } });
+      await deleteProductImage({ data: { code: deleteImageTarget.code } });
       toast.success("Imagem removida.");
-      setDeleteTarget(null);
+      setDeleteImageTarget(null);
       queryClient.invalidateQueries({ queryKey: ["catalog-product-codes"] });
       queryClient.invalidateQueries({ queryKey: ["catalog"] });
     } catch (err: any) {
@@ -445,12 +579,9 @@ function PriceTableSettingsPage() {
         </Button>
         <Tags className="h-6 w-6 text-muted-foreground" />
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Tabela de preços
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight">Tabela de preços</h1>
           <p className="text-muted-foreground">
-            Importe a planilha de preços da Bluutec sempre que ela for
-            atualizada.
+            Importe a planilha de preços sempre que ela for atualizada.
           </p>
         </div>
       </div>
@@ -459,9 +590,10 @@ function PriceTableSettingsPage() {
         <CardHeader>
           <CardTitle className="text-base">Importar planilha</CardTitle>
           <CardDescription>
-            Envie o arquivo Excel completo da Bluutec (com as abas GERAL e
-            TABELA ST). Produtos com o mesmo código são atualizados — nada é
-            duplicado.
+            Envie qualquer planilha Excel — na próxima tela você indica em qual
+            coluna está cada informação. Produtos com o mesmo código são
+            atualizados, nada é duplicado. Impostos (ST) ficam para uma
+            ferramenta separada.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -482,37 +614,250 @@ function PriceTableSettingsPage() {
           </Button>
           {!isOnline && (
             <p className="text-xs text-amber-700">
-              A importação precisa de internet — tente novamente quando
-              estiver online.
+              A importação precisa de internet — tente novamente quando estiver
+              online.
             </p>
           )}
           {summary && (
             <p className="text-sm text-muted-foreground">
-              {summary.productsWithPrice} produto(s) com preço cadastrado
-              hoje.
+              {summary.productsWithPrice} produto(s) com preço cadastrado hoje.
             </p>
           )}
-          {lastResult && (
-            <div className="flex items-center gap-2 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              <CheckCircle2 className="h-4 w-4 shrink-0" />
-              Última importação: {lastResult.importedProducts} produto(s)
-              {lastResult.importedStRates > 0 &&
-                ` · ${lastResult.importedStRates} alíquota(s) de ST`}
-              .
-            </div>
-          )}
         </CardContent>
+      </Card>
+
+      {/* Histórico de importações */}
+      <Card>
+        <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
+          <CollapsibleTrigger asChild>
+            <button type="button" className="flex w-full items-center justify-between p-6 text-left">
+              <div className="flex items-center gap-2">
+                <History className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <CardTitle className="text-base">Histórico de importações</CardTitle>
+                  <CardDescription>
+                    {importHistory.length} importação(ões) registrada(s)
+                  </CardDescription>
+                </div>
+              </div>
+              <ChevronDown
+                className={cn(
+                  "h-5 w-5 shrink-0 text-muted-foreground transition-transform",
+                  historyOpen && "rotate-180"
+                )}
+              />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="pt-0">
+              <div className="max-h-72 overflow-y-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Arquivo</TableHead>
+                      <TableHead className="w-24 text-right">Produtos</TableHead>
+                      <TableHead className="w-44">Importado em</TableHead>
+                      <TableHead className="w-10"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {importHistory.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={4} className="h-16 text-center text-muted-foreground">
+                          Nenhuma importação registrada ainda.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      importHistory.map((h: any) => (
+                        <TableRow key={h.id}>
+                          <TableCell className="max-w-[200px] truncate text-sm">
+                            {h.file_name}
+                          </TableCell>
+                          <TableCell className="text-right">{h.products_count}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {formatDateTime(h.imported_at)}
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() =>
+                                setDeleteImportTarget({ id: h.id, file_name: h.file_name })
+                              }
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </CollapsibleContent>
+        </Collapsible>
+      </Card>
+
+      {/* Produtos — editar ou excluir itens já importados */}
+      <Card>
+        <Collapsible open={productsOpen} onOpenChange={setProductsOpen}>
+          <CollapsibleTrigger asChild>
+            <button type="button" className="flex w-full items-center justify-between p-6 text-left">
+              <div className="flex items-center gap-2">
+                <ListChecks className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <CardTitle className="text-base">Produtos</CardTitle>
+                  <CardDescription>
+                    {(catalogProducts as any[]).length} produto(s) — editar um
+                    item sem reimportar a planilha inteira, ou excluir.
+                  </CardDescription>
+                </div>
+              </div>
+              <ChevronDown
+                className={cn(
+                  "h-5 w-5 shrink-0 text-muted-foreground transition-transform",
+                  productsOpen && "rotate-180"
+                )}
+              />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-3 pt-0">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por código ou descrição..."
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <div className="max-h-[32rem] overflow-y-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-24">Código</TableHead>
+                      <TableHead className="min-w-[160px]">Descrição</TableHead>
+                      <TableHead className="w-28">Família</TableHead>
+                      <TableHead className="w-20">Cor</TableHead>
+                      <TableHead className="w-20">Emb.</TableHead>
+                      <TableHead className="w-28">Preço</TableHead>
+                      <TableHead className="w-36">Atualizado em</TableHead>
+                      <TableHead className="w-20 text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredProducts.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={8} className="h-16 text-center text-muted-foreground">
+                          Nenhum produto encontrado.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredProducts.map((p: any) => {
+                        const dirty = isProductDirty(p);
+                        return (
+                          <TableRow key={p.id}>
+                            <TableCell className="font-mono text-xs">{p.code}</TableCell>
+                            <TableCell>
+                              <Input
+                                value={getFieldValue(p, "description")}
+                                onChange={(e) =>
+                                  setFieldValue(p.id, "description", e.target.value)
+                                }
+                                className="h-8 text-xs"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                value={getFieldValue(p, "family")}
+                                onChange={(e) => setFieldValue(p.id, "family", e.target.value)}
+                                className="h-8 text-xs"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                value={getFieldValue(p, "color")}
+                                onChange={(e) => setFieldValue(p.id, "color", e.target.value)}
+                                className="h-8 text-xs"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                value={getFieldValue(p, "package_qty")}
+                                onChange={(e) =>
+                                  setFieldValue(p.id, "package_qty", e.target.value)
+                                }
+                                className="h-8 w-16 text-xs"
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                type="text"
+                                inputMode="decimal"
+                                value={getFieldValue(p, "table_price")}
+                                onChange={(e) =>
+                                  setFieldValue(p.id, "table_price", e.target.value)
+                                }
+                                className="h-8 w-24 text-xs"
+                              />
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {formatDateTime(p.price_updated_at)}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex justify-end gap-1">
+                                {dirty && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleSaveProduct(p)}
+                                    disabled={savingProductId === p.id}
+                                  >
+                                    {savingProductId === p.id ? "..." : "Salvar"}
+                                  </Button>
+                                )}
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() =>
+                                    setDeleteProductTarget({
+                                      id: p.id,
+                                      code: p.code,
+                                      description: p.description,
+                                    })
+                                  }
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </CollapsibleContent>
+        </Collapsible>
       </Card>
 
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Imagens dos produtos</CardTitle>
           <CardDescription>
-            Selecione várias fotos de uma vez — o nome de cada arquivo
-            precisa ser o código do produto (ex: 70032001.jpg). Reenviar uma
-            imagem com o mesmo código substitui a foto anterior. Se o nome
-            do arquivo estiver errado ou repetido, corrija o código na
-            tabela antes de enviar.
+            Selecione várias fotos de uma vez — o nome de cada arquivo precisa
+            ser o código do produto (ex: 70032001.jpg). Reenviar uma imagem com
+            o mesmo código substitui a foto anterior. Se o nome do arquivo
+            estiver errado ou repetido, corrija o código na tabela antes de
+            enviar.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -564,22 +909,16 @@ function PriceTableSettingsPage() {
                           <TableCell>
                             <Input
                               value={row.code}
-                              onChange={(e) =>
-                                updateImageCode(index, e.target.value.trim())
-                              }
+                              onChange={(e) => updateImageCode(index, e.target.value.trim())}
                               disabled={uploadingImages}
                               className="h-8 w-36 font-mono text-xs"
                             />
                           </TableCell>
                           <TableCell className="text-sm">
                             {product ? (
-                              <span className="truncate">
-                                {product.description}
-                              </span>
+                              <span className="truncate">{product.description}</span>
                             ) : (
-                              <Badge variant="destructive">
-                                código não encontrado
-                              </Badge>
+                              <Badge variant="destructive">código não encontrado</Badge>
                             )}
                           </TableCell>
                         </TableRow>
@@ -590,8 +929,7 @@ function PriceTableSettingsPage() {
               </div>
               <div className="flex items-center justify-between">
                 <p className="text-sm text-muted-foreground">
-                  {matchedCount} de {imageRows.length} com produto
-                  encontrado
+                  {matchedCount} de {imageRows.length} com produto encontrado
                 </p>
                 <div className="flex gap-2">
                   <Button
@@ -602,11 +940,7 @@ function PriceTableSettingsPage() {
                   >
                     Cancelar
                   </Button>
-                  <Button
-                    type="button"
-                    onClick={handleUploadImages}
-                    disabled={uploadingImages}
-                  >
+                  <Button type="button" onClick={handleUploadImages} disabled={uploadingImages}>
                     {uploadingImages
                       ? `Enviando ${uploadProgress.done}/${uploadProgress.total}...`
                       : "Enviar imagens"}
@@ -622,16 +956,15 @@ function PriceTableSettingsPage() {
                 <p>{uploadSummary.sent} imagem(ns) vinculada(s) com sucesso.</p>
                 {uploadSummary.notFound.length > 0 && (
                   <p className="text-amber-700">
-                    Sem produto correspondente:{" "}
-                    {uploadSummary.notFound.join(", ")}
+                    Sem produto correspondente: {uploadSummary.notFound.join(", ")}
                   </p>
                 )}
               </div>
               {uploadSummary.failed.length > 0 && (
                 <div className="space-y-1 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
                   <p className="font-medium">
-                    {uploadSummary.failed.length} imagem(ns) com erro no envio
-                    (não é problema de código):
+                    {uploadSummary.failed.length} imagem(ns) com erro no envio (não é
+                    problema de código):
                   </p>
                   {uploadSummary.failed.slice(0, 5).map((f) => (
                     <p key={f.code} className="text-xs">
@@ -640,8 +973,8 @@ function PriceTableSettingsPage() {
                   ))}
                   {uploadSummary.failed.length > 5 && (
                     <p className="text-xs">
-                      + {uploadSummary.failed.length - 5} outra(s) com o
-                      mesmo tipo de erro.
+                      + {uploadSummary.failed.length - 5} outra(s) com o mesmo tipo de
+                      erro.
                     </p>
                   )}
                 </div>
@@ -651,6 +984,7 @@ function PriceTableSettingsPage() {
         </CardContent>
       </Card>
 
+      {/* Imagens cadastradas — mover código / remover */}
       <Card>
         <Collapsible open={imagesListOpen} onOpenChange={setImagesListOpen}>
           <CollapsibleTrigger asChild>
@@ -706,10 +1040,7 @@ function PriceTableSettingsPage() {
                               <Input
                                 value={editedCode}
                                 onChange={(e) =>
-                                  setCodeEdits((prev) => ({
-                                    ...prev,
-                                    [p.id]: e.target.value,
-                                  }))
+                                  setCodeEdits((prev) => ({ ...prev, [p.id]: e.target.value }))
                                 }
                                 className="h-8 w-36 font-mono text-xs"
                               />
@@ -735,7 +1066,7 @@ function PriceTableSettingsPage() {
                                   variant="ghost"
                                   size="icon"
                                   onClick={() =>
-                                    setDeleteTarget({
+                                    setDeleteImageTarget({
                                       id: p.id,
                                       code: p.code,
                                       description: p.description,
@@ -759,22 +1090,14 @@ function PriceTableSettingsPage() {
       </Card>
 
       <Card>
-        <CardContent className="space-y-1 p-4 text-sm text-muted-foreground">
-          <p>
-            <strong>Estados sem alíquota de ST na planilha</strong> são
-            tratados como isentos — não é preciso preencher todos os
-            estados.
-          </p>
-          <p>
-            Colunas lidas da aba GERAL: CÓDIGO, Descrição, COR, EMBALAGEM,
-            TABELA (preço) e FAMÍLIA.
-          </p>
+        <CardContent className="p-4 text-sm text-muted-foreground">
+          Informações de impostos (ST) serão tratadas em outra ferramenta.
         </CardContent>
       </Card>
 
-      {/* Confirmação antes de importar */}
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent className="sm:max-w-lg">
+      {/* Assistente de importação: mapear colunas */}
+      <Dialog open={wizardOpen} onOpenChange={setWizardOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileSpreadsheet className="h-5 w-5" />
@@ -782,21 +1105,82 @@ function PriceTableSettingsPage() {
             </DialogTitle>
           </DialogHeader>
 
-          {parsed && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-md border p-3">
-                  <p className="text-2xl font-bold">{parsed.products.length}</p>
-                  <p className="text-muted-foreground">produtos (aba GERAL)</p>
-                </div>
-                <div className="rounded-md border p-3">
-                  <p className="text-2xl font-bold">{parsed.stRates.length}</p>
-                  <p className="text-muted-foreground">
-                    alíquotas de ST {parsed.missingTabelaSt && "(aba não encontrada)"}
-                  </p>
-                </div>
+          <div className="space-y-4">
+            {sheetNames.length > 1 && (
+              <div className="grid gap-2">
+                <Label>Aba da planilha</Label>
+                <Select value={selectedSheet} onValueChange={handleSheetChange}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sheetNames.map((name) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
+            )}
 
+            <div className="grid gap-2">
+              <Label>Em qual linha está o cabeçalho (nomes das colunas)?</Label>
+              <Input
+                type="number"
+                min={1}
+                value={headerRow}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setHeaderRow(Math.max(1, parseInt(e.target.value) || 1))}
+                className="w-24"
+              />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {COLUMN_FIELDS.map((field) => (
+                <div key={field.key} className="grid gap-2">
+                  <Label>
+                    {field.label}
+                    {field.required && " *"}
+                  </Label>
+                  <Select
+                    value={columnMap[field.key] === null ? "none" : String(columnMap[field.key])}
+                    onValueChange={(v) =>
+                      setColumnMap((prev) => ({
+                        ...prev,
+                        [field.key]: v === "none" ? null : Number(v),
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione a coluna" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">— não usar —</SelectItem>
+                      {Array.from({ length: columnCount }).map((_, i) => (
+                        <SelectItem key={i} value={String(i)}>
+                          {columnOptionLabel(i)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-md border p-3 text-sm">
+              <p className="font-medium">
+                {previewProducts.length} produto(s) encontrado(s) com esse
+                mapeamento.
+              </p>
+              {!canImport && (
+                <p className="text-amber-700">
+                  Selecione pelo menos as colunas de Código e Preço unitário.
+                </p>
+              )}
+            </div>
+
+            {canImport && previewProducts.length > 0 && (
               <div className="rounded-md border">
                 <Table>
                   <TableHeader>
@@ -804,61 +1188,116 @@ function PriceTableSettingsPage() {
                       <TableHead>Código</TableHead>
                       <TableHead>Descrição</TableHead>
                       <TableHead>Família</TableHead>
+                      <TableHead>Cor</TableHead>
                       <TableHead className="text-right">Preço</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {parsed.products.slice(0, 6).map((p) => (
-                      <TableRow key={p.code}>
-                        <TableCell>{p.code}</TableCell>
-                        <TableCell className="max-w-[160px] truncate">
-                          {p.description}
+                    {previewProducts.slice(0, 5).map((p, i) => (
+                      <TableRow key={p.code + i}>
+                        <TableCell className="font-mono text-xs">{p.code}</TableCell>
+                        <TableCell className="max-w-[140px] truncate text-xs">
+                          {p.description || "—"}
                         </TableCell>
-                        <TableCell>{p.family || "—"}</TableCell>
-                        <TableCell className="text-right">
-                          {p.table_price.toLocaleString("pt-BR", {
-                            style: "currency",
-                            currency: "BRL",
-                          })}
+                        <TableCell className="text-xs">{p.family || "—"}</TableCell>
+                        <TableCell className="text-xs">{p.color || "—"}</TableCell>
+                        <TableCell className="text-right text-xs">
+                          {formatCurrency(p.table_price)}
                         </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
-                {parsed.products.length > 6 && (
+                {previewProducts.length > 5 && (
                   <p className="p-2 text-center text-xs text-muted-foreground">
-                    + {parsed.products.length - 6} produto(s)
+                    + {previewProducts.length - 5} produto(s)
                   </p>
                 )}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmOpen(false)}>
+            <Button variant="outline" onClick={() => setWizardOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleConfirmImport} disabled={importing}>
-              {importing ? "Importando..." : "Confirmar importação"}
+            <Button
+              onClick={handleConfirmImport}
+              disabled={!canImport || previewProducts.length === 0 || importing}
+            >
+              {importing
+                ? "Importando..."
+                : `Importar ${previewProducts.length} produto(s)`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmações de exclusão */}
+      <Dialog
+        open={!!deleteImportTarget}
+        onOpenChange={(open) => !open && setDeleteImportTarget(null)}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Remover do histórico</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {deleteImportTarget &&
+              `Remover o registro de "${deleteImportTarget.file_name}" do histórico? Isso não desfaz os preços já importados.`}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteImportTarget(null)}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteImportLog}>
+              Remover
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog
-        open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        open={!!deleteProductTarget}
+        onOpenChange={(open) => !open && setDeleteProductTarget(null)}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Excluir produto</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {deleteProductTarget &&
+              `Excluir o produto ${deleteProductTarget.code} — ${deleteProductTarget.description}? Se ele já foi usado em algum pedido, a exclusão será recusada.`}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteProductTarget(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmDeleteProduct}
+              disabled={deletingProduct}
+            >
+              {deletingProduct ? "Excluindo..." : "Excluir"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!deleteImageTarget}
+        onOpenChange={(open) => !open && setDeleteImageTarget(null)}
       >
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Remover imagem</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            {deleteTarget &&
-              `Remover a foto do produto ${deleteTarget.code} — ${deleteTarget.description}?`}
+            {deleteImageTarget &&
+              `Remover a foto do produto ${deleteImageTarget.code} — ${deleteImageTarget.description}?`}
           </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+            <Button variant="outline" onClick={() => setDeleteImageTarget(null)}>
               Cancelar
             </Button>
             <Button
