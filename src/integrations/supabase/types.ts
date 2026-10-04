@@ -107,10 +107,11 @@ export type Database = {
         }
         Relationships: []
       }
-      product_st_rates: {
+      product_tax_rates: {
         Row: {
           created_at: string
           id: string
+          ipi_percent: number
           product_id: string
           st_percent: number
           uf: string
@@ -119,6 +120,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          ipi_percent?: number
           product_id: string
           st_percent?: number
           uf: string
@@ -127,6 +129,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          ipi_percent?: number
           product_id?: string
           st_percent?: number
           uf?: string
