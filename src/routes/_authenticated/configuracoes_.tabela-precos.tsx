@@ -436,6 +436,50 @@ function PriceTableSettingsPage() {
     });
   }
 
+  function loadImageFromFile(file: File): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img);
+      };
+      img.onerror = (e) => {
+        URL.revokeObjectURL(url);
+        reject(e);
+      };
+      img.src = url;
+    });
+  }
+
+  /** Redimensiona a foto (lado maior até 1280px) e reexporta como JPEG
+   * qualidade 85% antes de enviar — fotos de celular costumam vir com
+   * vários MB, e isso não é necessário para a foto de um produto. Cai
+   * para o arquivo original sem comprimir se, por algum motivo, não
+   * conseguir processar (ex: formato que o navegador não decodifica). */
+  async function compressImageToBase64(
+    file: File,
+    maxDimension = 1280,
+    quality = 0.85
+  ): Promise<string> {
+    try {
+      const img = await loadImageFromFile(file);
+      const scale = Math.min(1, maxDimension / Math.max(img.naturalWidth, img.naturalHeight));
+      const width = Math.max(1, Math.round(img.naturalWidth * scale));
+      const height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return fileToBase64(file);
+      ctx.drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL("image/jpeg", quality);
+      return dataUrl.split(",")[1] ?? "";
+    } catch {
+      return fileToBase64(file);
+    }
+  }
+
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [imageRows, setImageRows] = useState<ImageRow[]>([]);
   const [uploadingImages, setUploadingImages] = useState(false);
@@ -474,12 +518,14 @@ function PriceTableSettingsPage() {
 
     for (const row of imageRows) {
       try {
-        const base64Data = await fileToBase64(row.file);
+        // Sempre reexporta como JPEG comprimido, independente do formato
+        // original — mantém o nome por código, mas a extensão vira .jpg.
+        const base64Data = await compressImageToBase64(row.file);
         const result = await uploadProductImage({
           data: {
             code: row.code,
-            fileName: row.fileName,
-            contentType: row.file.type || "image/jpeg",
+            fileName: `${row.code}.jpg`,
+            contentType: "image/jpeg",
             base64Data,
           },
         });
