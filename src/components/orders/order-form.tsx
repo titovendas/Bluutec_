@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Search, Trash2, ArrowLeft, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,7 @@ import {
   type PriceTable,
 } from "@/lib/price-tables";
 import { getPaymentTermsOfflineAware } from "@/lib/offline-customers";
+import { listTaxRatesByUf } from "@/lib/sales.functions";
 
 /** Mostra sempre com 2 casas decimais e vírgula (padrão BR), ex: 4,80. */
 function formatDecimalInput(value: number) {
@@ -128,6 +129,44 @@ export function OrderForm({
     [paymentTerms]
   );
 
+  // Impostos (IPI/ST) variam por estado — assim que o cliente é
+  // selecionado, busca os impostos configurados pra esse estado e já
+  // aplica em todos os itens do pedido.
+  const selectedCustomer = useMemo(
+    () => customers.find((c) => c.id === customerId),
+    [customers, customerId]
+  );
+  const customerUf: string = selectedCustomer?.state || "";
+
+  const { data: taxRates = [] } = useQuery({
+    queryKey: ["tax-rates-for-order", customerUf],
+    queryFn: () => listTaxRatesByUf({ data: { uf: customerUf } }),
+    enabled: !!customerUf,
+  });
+  const taxRateByCode = useMemo(() => {
+    const map = new Map<string, { ipi_percent: number; st_percent: number }>();
+    for (const r of taxRates as any[]) {
+      map.set(r.code, { ipi_percent: Number(r.ipi_percent), st_percent: Number(r.st_percent) });
+    }
+    return map;
+  }, [taxRates]);
+
+  // Se o cliente (e portanto o estado) mudar com itens já no pedido,
+  // atualiza o IPI/ST de cada item para o que está cadastrado no novo
+  // estado. Itens cujo código não tem imposto configurado nesse estado
+  // mantêm o valor que já tinham.
+  useEffect(() => {
+    if (!customerUf || taxRateByCode.size === 0) return;
+    setItems((prev) =>
+      prev.map((item) => {
+        const rate = taxRateByCode.get(item.code);
+        if (!rate) return item;
+        return { ...item, ipi_percent: rate.ipi_percent, st_percent: rate.st_percent };
+      })
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerUf, taxRateByCode]);
+
   /** Preço líquido final de um item, com política + desconto do item +
    * os dois descontos do pedido já aplicados em cadeia. */
   const netUnitPrice = (item: FormItem) =>
@@ -157,6 +196,7 @@ export function OrderForm({
   }, [items, priceTable, cashDiscountPercent, pickupDiscountPercent]);
 
   const addProduct = (product: any, quantity: number) => {
+    const stateRate = taxRateByCode.get(product.code);
     setItems((prev) => {
       const existing = prev.find((i) => i.catalog_product_id === product.id);
       if (existing) {
@@ -176,8 +216,11 @@ export function OrderForm({
           quantity,
           table_price: catalogTablePrice(product),
           discount_percent: 0,
-          ipi_percent: Number(product.ipi_percent ?? 0),
-          st_percent: Number(product.st_percent ?? 0),
+          // Usa o imposto cadastrado para o estado do cliente; se esse
+          // produto não tiver imposto configurado nesse estado, cai no
+          // valor cadastrado direto no produto (se houver).
+          ipi_percent: stateRate ? stateRate.ipi_percent : Number(product.ipi_percent ?? 0),
+          st_percent: stateRate ? stateRate.st_percent : Number(product.st_percent ?? 0),
         },
       ];
     });
