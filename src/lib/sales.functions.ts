@@ -639,44 +639,35 @@ export const upsertOrder = createServerFn({ method: "POST" })
     return { id: orderId };
   });
 
-// Tabela de preços (Bluutec)
+// Tabela de preços
 //
-// Cada produto tem um preço de tabela único, uma família (usada para
-// definir a faixa de comissão) e alíquotas de ST que variam por estado.
-// Estados sem alíquota cadastrada são estados isentos de ST para esses
-// produtos (não é um dado faltando).
+// A importação é genérica: o navegador lê a planilha e pergunta ao
+// usuário em qual coluna está cada informação (código, descrição,
+// família, embalagem, preço unitário) — não depende de nomes fixos de
+// aba ou cabeçalho. Impostos (ST) não entram mais por aqui; ficam para
+// uma ferramenta separada.
 const priceTableProductRowSchema = z.object({
   code: z.string().min(1),
-  // Por enquanto só código e preço são obrigatórios — algumas linhas da
-  // planilha vêm sem descrição preenchida, e isso não pode travar a
-  // importação inteira.
   description: z.string().optional().default(""),
+  family: z.string().optional().or(z.literal("")),
   color: z.string().optional().or(z.literal("")),
   package_qty: z.coerce.number().int().min(0).optional(),
   table_price: z.coerce.number().min(0),
-  family: z.string().optional().or(z.literal("")),
-});
-
-const priceTableStRowSchema = z.object({
-  code: z.string().min(1),
-  uf: z.string().min(2).max(2),
-  st_percent: z.coerce.number().min(0),
 });
 
 /**
- * Importa a planilha completa de preços da Bluutec (tela de Configurações
- * > Tabela de preços). Recebe as linhas já lidas no navegador (aba GERAL
- * para os produtos, aba TABELA ST para as alíquotas por estado) e faz
- * upsert por código de produto — reimportar a mesma planilha atualiza os
- * produtos existentes em vez de duplicar.
+ * Importa produtos já mapeados pelo navegador (tela de Configurações >
+ * Tabela de preços) e registra no histórico de importações. Upsert por
+ * código — reimportar atualiza os produtos existentes em vez de
+ * duplicar. Marca price_updated_at em todos os produtos importados.
  */
 export const importPriceTable = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data) =>
     z
       .object({
+        fileName: z.string().min(1),
         products: z.array(priceTableProductRowSchema),
-        stRates: z.array(priceTableStRowSchema),
       })
       .parse(data)
   )
@@ -684,53 +675,43 @@ export const importPriceTable = createServerFn({ method: "POST" })
     const { supabase } = context;
 
     if (data.products.length === 0) {
-      throw new Error("Nenhum produto encontrado na aba GERAL da planilha.");
+      throw new Error("Nenhum produto encontrado com as colunas selecionadas.");
     }
 
+    const now = new Date().toISOString();
     const productRows = data.products.map((p) => ({
       code: p.code,
       description: p.description,
+      family: p.family || null,
       color: p.color || null,
       package_qty: p.package_qty ?? null,
       table_price: p.table_price,
-      family: p.family || null,
       // Mantém os campos antigos preenchidos com o mesmo valor, já que o
       // pedido ainda usa "price_atacado/varejo" até reformularmos o cálculo.
       price_atacado: p.table_price,
       price_varejo_10: p.table_price,
       price_varejo_75: p.table_price,
+      price_updated_at: now,
       active: true,
     }));
 
-    const { data: upserted, error } = await supabase
+    const { error } = await supabase
       .from("catalog_products")
-      .upsert(productRows, { onConflict: "code" })
-      .select("id, code");
+      .upsert(productRows, { onConflict: "code" });
     if (error) throw new Error(error.message);
 
-    const codeToId = new Map((upserted ?? []).map((r: any) => [r.code, r.id]));
+    const { error: logError } = await supabase.from("price_table_imports").insert({
+      file_name: data.fileName,
+      products_count: productRows.length,
+      imported_at: now,
+    });
+    if (logError) throw new Error(logError.message);
 
-    let importedStRates = 0;
-    if (data.stRates.length > 0) {
-      const stRows = data.stRates
-        .map((r) => ({
-          product_id: codeToId.get(r.code),
-          uf: r.uf.toUpperCase(),
-          st_percent: r.st_percent,
-        }))
-        .filter((r): r is { product_id: string; uf: string; st_percent: number } =>
-          !!r.product_id
-        );
-      if (stRows.length > 0) {
-        const { error: stError } = await supabase
-          .from("product_st_rates")
-          .upsert(stRows, { onConflict: "product_id,uf" });
-        if (stError) throw new Error(stError.message);
-        importedStRates = stRows.length;
-      }
-    }
-
-    return { importedProducts: productRows.length, importedStRates };
+    return {
+      importedProducts: productRows.length,
+      fileName: data.fileName,
+      importedAt: now,
+    };
   });
 
 export const getPriceTableSummary = createServerFn({ method: "GET" })
@@ -743,6 +724,109 @@ export const getPriceTableSummary = createServerFn({ method: "GET" })
       .not("table_price", "is", null);
     if (error) throw new Error(error.message);
     return { productsWithPrice: count ?? 0 };
+  });
+
+/** Histórico de importações da tabela de preços, mais recente primeiro. */
+export const listPriceTableImports = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase } = context;
+    const { data, error } = await supabase
+      .from("price_table_imports")
+      .select("id, file_name, products_count, imported_at")
+      .order("imported_at", { ascending: false })
+      .limit(20);
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
+/**
+ * Edita um único produto (ex: a Bluutec reajustou só um item) sem
+ * precisar reimportar a planilha inteira. Grava price_updated_at com a
+ * data/hora da edição.
+ */
+export const updateCatalogProduct = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) =>
+    z
+      .object({
+        id: z.string().uuid(),
+        description: z.string().optional(),
+        family: z.string().optional(),
+        color: z.string().optional(),
+        package_qty: z.coerce.number().int().min(0).optional(),
+        table_price: z.coerce.number().min(0).optional(),
+      })
+      .parse(data)
+  )
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
+    const { id, ...fields } = data as any;
+
+    const payload: any = {
+      price_updated_at: new Date().toISOString(),
+    };
+    if (fields.description !== undefined) payload.description = fields.description;
+    if (fields.family !== undefined) payload.family = fields.family || null;
+    if (fields.color !== undefined) payload.color = fields.color || null;
+    if (fields.package_qty !== undefined) payload.package_qty = fields.package_qty;
+    if (fields.table_price !== undefined) {
+      payload.table_price = fields.table_price;
+      payload.price_atacado = fields.table_price;
+      payload.price_varejo_10 = fields.table_price;
+      payload.price_varejo_75 = fields.table_price;
+    }
+
+    const { data: updated, error } = await supabase
+      .from("catalog_products")
+      .update(payload)
+      .eq("id", id)
+      .select("id, code")
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!updated) throw new Error("Produto não encontrado.");
+
+    return { id: updated.id, code: updated.code };
+  });
+
+/**
+ * Remove um produto do catálogo (ex: foi importado com o código errado
+ * e não dá pra só corrigir). Se o produto já foi usado em algum pedido,
+ * o banco recusa a exclusão — a mensagem de erro explica isso.
+ */
+export const deleteCatalogProduct = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) => z.object({ id: z.string().uuid() }).parse(data))
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
+    const { error } = await supabase
+      .from("catalog_products")
+      .delete()
+      .eq("id", data.id);
+    if (error) {
+      if (error.message.toLowerCase().includes("foreign key")) {
+        throw new Error(
+          "Esse produto já foi usado em algum pedido e não pode ser excluído."
+        );
+      }
+      throw new Error(error.message);
+    }
+    return { id: data.id };
+  });
+
+/** Apaga um registro do histórico de importações (não desfaz os preços
+ * importados — só remove o registro da lista). */
+export const deletePriceTableImport = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) => z.object({ id: z.string().uuid() }).parse(data))
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
+    const { error } = await supabase
+      .from("price_table_imports")
+      .delete()
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { id: data.id };
   });
 
 // Imagens dos produtos
@@ -802,7 +886,9 @@ export const listCatalogProductCodes = createServerFn({ method: "GET" })
     const { supabase } = context;
     const { data, error } = await supabase
       .from("catalog_products")
-      .select("id, code, description, image_url")
+      .select(
+        "id, code, description, family, color, package_qty, table_price, price_updated_at, image_url"
+      )
       .order("code");
     if (error) throw new Error(error.message);
     return data ?? [];
