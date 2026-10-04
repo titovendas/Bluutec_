@@ -25,6 +25,46 @@ async function toDataUrl(url: string): Promise<string | null> {
   }
 }
 
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+/**
+ * Busca a foto do produto e já reduz pra miniatura (lado maior até
+ * 160px, JPEG 80%) antes de embutir no PDF — a foto original pode ter
+ * vários MB, e no PDF ela aparece do tamanho de um selo postal. Sem
+ * isso, um pedido com poucos itens já gerava um PDF de dezenas de MB.
+ * Devolve também a proporção real da imagem, pra desenhar sem esticar.
+ */
+async function toThumbnail(
+  url: string,
+  maxDimension = 160,
+  quality = 0.8
+): Promise<{ dataUrl: string; width: number; height: number } | null> {
+  const original = await toDataUrl(url);
+  if (!original) return null;
+  try {
+    const img = await loadImage(original);
+    const scale = Math.min(1, maxDimension / Math.max(img.naturalWidth, img.naturalHeight));
+    const width = Math.max(1, Math.round(img.naturalWidth * scale));
+    const height = Math.max(1, Math.round(img.naturalHeight * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, width, height);
+    return { dataUrl: canvas.toDataURL("image/jpeg", quality), width, height };
+  } catch {
+    return null;
+  }
+}
+
 function formatCep(cep?: string | null) {
   if (!cep) return "";
   const digits = cep.replace(/\D/g, "");
@@ -83,7 +123,7 @@ export async function generateOrderPdf(order: any, items: any[]) {
   infoLines.forEach((line, i) => doc.text(line, 40, 108 + i * 14));
 
   const images = await Promise.all(
-    items.map((item) => (item.image_url ? toDataUrl(item.image_url) : null))
+    items.map((item) => (item.image_url ? toThumbnail(item.image_url) : null))
   );
 
   const tableStartY = 108 + infoLines.length * 14 + 16;
@@ -137,7 +177,15 @@ export async function generateOrderPdf(order: any, items: any[]) {
         const img = images[data.row.index];
         if (img) {
           try {
-            doc.addImage(img, "JPEG", data.cell.x + 3, data.cell.y + 3, 32, 32);
+            // Encaixa dentro da célula mantendo a proporção real da
+            // foto (nunca estica pra virar quadrado) e centraliza.
+            const maxBox = 32;
+            const scale = Math.min(maxBox / img.width, maxBox / img.height);
+            const w = img.width * scale;
+            const h = img.height * scale;
+            const x = data.cell.x + (data.cell.width - w) / 2;
+            const y = data.cell.y + (data.cell.height - h) / 2;
+            doc.addImage(img.dataUrl, "JPEG", x, y, w, h);
           } catch {
             /* ignore */
           }
