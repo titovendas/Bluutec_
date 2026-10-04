@@ -137,6 +137,8 @@ export function OrderForm({
     [customers, customerId]
   );
   const customerUf: string = selectedCustomer?.state || "";
+  // Construtora: ST não é destacado no pedido, segundo a legislação atual.
+  const isConstrutora = selectedCustomer?.customer_type === "construtora";
 
   const { data: taxRates = [] } = useQuery({
     queryKey: ["tax-rates-for-order", customerUf],
@@ -151,21 +153,27 @@ export function OrderForm({
     return map;
   }, [taxRates]);
 
-  // Se o cliente (e portanto o estado) mudar com itens já no pedido,
-  // atualiza o IPI/ST de cada item para o que está cadastrado no novo
-  // estado. Itens cujo código não tem imposto configurado nesse estado
-  // mantêm o valor que já tinham.
+  /** Resolve o IPI/ST de um código: busca o imposto do estado do cliente
+   * e, se o cliente for construtora, zera o ST (o IPI continua normal). */
+  const resolveTax = (code: string, fallback: { ipi_percent: number; st_percent: number }) => {
+    const rate = taxRateByCode.get(code);
+    const ipi_percent = rate ? rate.ipi_percent : fallback.ipi_percent;
+    const st_percent = isConstrutora ? 0 : rate ? rate.st_percent : fallback.st_percent;
+    return { ipi_percent, st_percent };
+  };
+
+  // Se o cliente mudar (estado e/ou classificação varejo/construtora)
+  // com itens já no pedido, recalcula o IPI/ST de cada item.
   useEffect(() => {
-    if (!customerUf || taxRateByCode.size === 0) return;
+    if (!customerId) return;
     setItems((prev) =>
-      prev.map((item) => {
-        const rate = taxRateByCode.get(item.code);
-        if (!rate) return item;
-        return { ...item, ipi_percent: rate.ipi_percent, st_percent: rate.st_percent };
-      })
+      prev.map((item) => ({
+        ...item,
+        ...resolveTax(item.code, { ipi_percent: item.ipi_percent, st_percent: item.st_percent }),
+      }))
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerUf, taxRateByCode]);
+  }, [customerId, customerUf, isConstrutora, taxRateByCode]);
 
   /** Preço líquido final de um item, com política + desconto do item +
    * os dois descontos do pedido já aplicados em cadeia. */
@@ -196,7 +204,10 @@ export function OrderForm({
   }, [items, priceTable, cashDiscountPercent, pickupDiscountPercent]);
 
   const addProduct = (product: any, quantity: number) => {
-    const stateRate = taxRateByCode.get(product.code);
+    const tax = resolveTax(product.code, {
+      ipi_percent: Number(product.ipi_percent ?? 0),
+      st_percent: Number(product.st_percent ?? 0),
+    });
     setItems((prev) => {
       const existing = prev.find((i) => i.catalog_product_id === product.id);
       if (existing) {
@@ -216,11 +227,11 @@ export function OrderForm({
           quantity,
           table_price: catalogTablePrice(product),
           discount_percent: 0,
-          // Usa o imposto cadastrado para o estado do cliente; se esse
-          // produto não tiver imposto configurado nesse estado, cai no
-          // valor cadastrado direto no produto (se houver).
-          ipi_percent: stateRate ? stateRate.ipi_percent : Number(product.ipi_percent ?? 0),
-          st_percent: stateRate ? stateRate.st_percent : Number(product.st_percent ?? 0),
+          // Usa o imposto cadastrado para o estado do cliente (ou o valor
+          // do produto, se esse estado não tiver nada configurado); ST
+          // sempre zerado para clientes construtora.
+          ipi_percent: tax.ipi_percent,
+          st_percent: tax.st_percent,
         },
       ];
     });
@@ -259,6 +270,11 @@ export function OrderForm({
             searchPlaceholder="Buscar por nome ou CNPJ..."
             emptyText="Nenhum cliente encontrado."
           />
+          {isConstrutora && (
+            <p className="text-xs text-blue-700">
+              Cliente construtora — ST não será destacado no pedido.
+            </p>
+          )}
         </div>
         <div className="grid gap-2">
           <Label>Política comercial *</Label>
