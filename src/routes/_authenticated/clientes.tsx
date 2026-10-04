@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -50,6 +57,7 @@ const emptyCustomer = {
   zip_code: "",
   city: "",
   state: "",
+  customer_type: "varejo",
 };
 
 function formatCnpj(value: string) {
@@ -102,6 +110,7 @@ function CustomersPage() {
       zip_code: customer.zip_code ?? "",
       city: customer.city ?? "",
       state: customer.state ?? "",
+      customer_type: customer.customer_type ?? "varejo",
     });
     setCnpjInput(customer.document ?? "");
     setFound(true);
@@ -128,6 +137,7 @@ function CustomersPage() {
         zip_code: result.zip_code,
         city: result.city,
         state: result.state,
+        customer_type: form.customer_type,
       });
       setFound(true);
       toast.success("Dados do CNPJ carregados");
@@ -266,6 +276,11 @@ function CustomersPage() {
                 <TableRow key={customer.id}>
                   <TableCell className="font-medium">
                     {customer.name}
+                    {customer.customer_type === "construtora" && (
+                      <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-normal text-blue-700">
+                        construtora
+                      </span>
+                    )}
                     {customer.__pending && (
                       <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-normal text-amber-700">
                         aguardando sincronização
@@ -354,6 +369,25 @@ function CustomersPage() {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
               />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="customer_type">Classificação *</Label>
+              <Select
+                value={form.customer_type}
+                onValueChange={(v) => setForm({ ...form, customer_type: v })}
+              >
+                <SelectTrigger id="customer_type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="varejo">Varejo</SelectItem>
+                  <SelectItem value="construtora">Construtora</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Construtora: o ST não é destacado no pedido, conforme a
+                legislação atual. Varejo: ST calculado normalmente.
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
