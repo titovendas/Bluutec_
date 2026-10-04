@@ -979,6 +979,170 @@ export const reassignProductImage = createServerFn({ method: "POST" })
     return { toCode: toProduct.code };
   });
 
+// Impostos por produto e por estado (UF)
+//
+// Cada estado brasileiro tem sua própria tributação. A importação é por
+// estado: código do produto + IPI + ST (mesmo mapeamento genérico de
+// colunas da tabela de preços). Reimportar sobrescreve IPI e ST do
+// estado — se uma coluna não for mapeada nessa importação, ela entra
+// como 0 (não mantém o valor antigo).
+const taxRateRowSchema = z.object({
+  code: z.string().min(1),
+  ipi_percent: z.coerce.number().min(0).default(0),
+  st_percent: z.coerce.number().min(0).default(0),
+});
+
+export const importTaxRates = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) =>
+    z
+      .object({
+        uf: z.string().min(2).max(2),
+        rates: z.array(taxRateRowSchema),
+      })
+      .parse(data)
+  )
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
+    if (data.rates.length === 0) {
+      throw new Error("Nenhuma linha encontrada com as colunas selecionadas.");
+    }
+    const uf = data.uf.toUpperCase();
+
+    const codes = data.rates.map((r) => r.code);
+    const { data: products, error: productsError } = await supabase
+      .from("catalog_products")
+      .select("id, code")
+      .in("code", codes);
+    if (productsError) throw new Error(productsError.message);
+
+    const codeToId = new Map((products ?? []).map((p: any) => [p.code, p.id]));
+    const notFound: string[] = [];
+    const rows = data.rates
+      .map((r) => {
+        const productId = codeToId.get(r.code);
+        if (!productId) {
+          notFound.push(r.code);
+          return null;
+        }
+        return {
+          product_id: productId,
+          uf,
+          ipi_percent: r.ipi_percent,
+          st_percent: r.st_percent,
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => !!r);
+
+    if (rows.length > 0) {
+      const { error } = await supabase
+        .from("product_tax_rates")
+        .upsert(rows, { onConflict: "product_id,uf" });
+      if (error) throw new Error(error.message);
+    }
+
+    return { uf, imported: rows.length, notFound };
+  });
+
+/** Quantos produtos têm imposto configurado, por estado. */
+export const listTaxRatesSummary = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase } = context;
+    const { data, error } = await supabase.from("product_tax_rates").select("uf");
+    if (error) throw new Error(error.message);
+    const counts: Record<string, number> = {};
+    for (const row of (data ?? []) as any[]) {
+      counts[row.uf] = (counts[row.uf] ?? 0) + 1;
+    }
+    return counts;
+  });
+
+/** Impostos cadastrados para um estado específico, com código e descrição
+ * do produto já junto (pra exibir e editar na tela). */
+export const listTaxRatesByUf = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) => z.object({ uf: z.string().min(2).max(2) }).parse(data))
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
+    const { data: rows, error } = await supabase
+      .from("product_tax_rates")
+      .select("id, ipi_percent, st_percent, catalog_products(code, description)")
+      .eq("uf", data.uf.toUpperCase());
+    if (error) throw new Error(error.message);
+    return ((rows ?? []) as any[])
+      .map((r) => ({
+        id: r.id,
+        ipi_percent: r.ipi_percent,
+        st_percent: r.st_percent,
+        code: r.catalog_products?.code ?? "",
+        description: r.catalog_products?.description ?? "",
+      }))
+      .sort((a, b) => a.code.localeCompare(b.code));
+  });
+
+export const updateTaxRate = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) =>
+    z
+      .object({
+        id: z.string().uuid(),
+        ipi_percent: z.coerce.number().min(0).optional(),
+        st_percent: z.coerce.number().min(0).optional(),
+      })
+      .parse(data)
+  )
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
+    const payload: any = {};
+    if (data.ipi_percent !== undefined) payload.ipi_percent = data.ipi_percent;
+    if (data.st_percent !== undefined) payload.st_percent = data.st_percent;
+
+    const { error } = await supabase
+      .from("product_tax_rates")
+      .update(payload)
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { id: data.id };
+  });
+
+export const deleteTaxRate = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) => z.object({ id: z.string().uuid() }).parse(data))
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
+    const { error } = await supabase.from("product_tax_rates").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { id: data.id };
+  });
+
+/**
+ * Busca os impostos (IPI/ST) cadastrados para um estado, para um
+ * conjunto de produtos — usado ao montar um orçamento, assim que o
+ * cliente é selecionado, pra já calcular os impostos dos itens.
+ */
+export const getTaxRatesForOrder = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) =>
+    z
+      .object({
+        uf: z.string().min(2).max(2),
+        productIds: z.array(z.string().uuid()),
+      })
+      .parse(data)
+  )
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
+    if (data.productIds.length === 0) return [];
+    const { data: rows, error } = await supabase
+      .from("product_tax_rates")
+      .select("product_id, ipi_percent, st_percent")
+      .eq("uf", data.uf.toUpperCase())
+      .in("product_id", data.productIds);
+    if (error) throw new Error(error.message);
+    return rows ?? [];
+  });
+
 // Catalog
 export const listCatalog = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
