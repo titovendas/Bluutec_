@@ -119,6 +119,8 @@ const customerSchema = z.object({
   zip_code: z.string().optional().or(z.literal("")),
   city: z.string().optional().or(z.literal("")),
   state: z.string().optional().or(z.literal("")),
+  // Construtora: ST não é destacado no pedido, segundo a legislação atual.
+  customer_type: z.enum(["varejo", "construtora"]).default("varejo"),
 });
 
 const productSchema = z.object({
@@ -237,6 +239,7 @@ export const upsertCustomer = createServerFn({ method: "POST" })
       zip_code: data.zip_code || null,
       city: data.city || null,
       state: data.state || null,
+      customer_type: data.customer_type,
     };
 
     if (data.id) {
@@ -521,7 +524,7 @@ export const getOrder = createServerFn({ method: "GET" })
     const { data: order, error } = await supabase
       .from("orders")
       .select(
-        "*, customer:customers(id, name, document, phone, email, address, neighborhood, zip_code, city, state, price_table), seller:sellers(id, name, phone, email)"
+        "*, customer:customers(id, name, document, phone, email, address, neighborhood, zip_code, city, state, price_table, customer_type), seller:sellers(id, name, phone, email)"
       )
       .eq("id", data.id)
       .eq("user_id", userId)
