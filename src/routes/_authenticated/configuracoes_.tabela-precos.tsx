@@ -457,11 +457,23 @@ function PriceTableSettingsPage() {
    * vários MB, e isso não é necessário para a foto de um produto. Cai
    * para o arquivo original sem comprimir se, por algum motivo, não
    * conseguir processar (ex: formato que o navegador não decodifica). */
+  type CompressedImage = { base64: string; extension: string; contentType: string };
+
+  /** Redimensiona a foto (lado maior até 1280px) antes de enviar. Se o
+   * arquivo original tem fundo transparente (PNG/WEBP/GIF), reexporta
+   * como PNG pra manter a transparência — JPEG não suporta transparência
+   * e pinta o fundo de preto. Fotos comuns (JPEG) continuam sendo
+   * comprimidas como JPEG, que fica bem mais leve. */
   async function compressImageToBase64(
     file: File,
     maxDimension = 1280,
     quality = 0.85
-  ): Promise<string> {
+  ): Promise<CompressedImage> {
+    const fallback = async (): Promise<CompressedImage> => ({
+      base64: await fileToBase64(file),
+      extension: (file.name.match(/\.[a-zA-Z0-9]+$/)?.[0] ?? ".jpg").replace(".", ""),
+      contentType: file.type || "image/jpeg",
+    });
     try {
       const img = await loadImageFromFile(file);
       const scale = Math.min(1, maxDimension / Math.max(img.naturalWidth, img.naturalHeight));
@@ -471,12 +483,18 @@ function PriceTableSettingsPage() {
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext("2d");
-      if (!ctx) return fileToBase64(file);
+      if (!ctx) return fallback();
       ctx.drawImage(img, 0, 0, width, height);
+
+      const preserveTransparency = /png|webp|gif/i.test(file.type);
+      if (preserveTransparency) {
+        const dataUrl = canvas.toDataURL("image/png");
+        return { base64: dataUrl.split(",")[1] ?? "", extension: "png", contentType: "image/png" };
+      }
       const dataUrl = canvas.toDataURL("image/jpeg", quality);
-      return dataUrl.split(",")[1] ?? "";
+      return { base64: dataUrl.split(",")[1] ?? "", extension: "jpg", contentType: "image/jpeg" };
     } catch {
-      return fileToBase64(file);
+      return fallback();
     }
   }
 
@@ -518,15 +536,13 @@ function PriceTableSettingsPage() {
 
     for (const row of imageRows) {
       try {
-        // Sempre reexporta como JPEG comprimido, independente do formato
-        // original — mantém o nome por código, mas a extensão vira .jpg.
-        const base64Data = await compressImageToBase64(row.file);
+        const compressed = await compressImageToBase64(row.file);
         const result = await uploadProductImage({
           data: {
             code: row.code,
-            fileName: `${row.code}.jpg`,
-            contentType: "image/jpeg",
-            base64Data,
+            fileName: `${row.code}.${compressed.extension}`,
+            contentType: compressed.contentType,
+            base64Data: compressed.base64,
           },
         });
         if (result.matched) sent++;
