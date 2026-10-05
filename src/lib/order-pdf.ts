@@ -3,6 +3,9 @@ import autoTable from "jspdf-autotable";
 import logo from "@/assets/bluutec-logo.png";
 import { formatCurrency, formatDate } from "@/lib/sales-formatters";
 
+// Paleta Bluutec: azul da marca (#008ECA).
+const BRAND_COLOR: [number, number, number] = [0, 142, 202];
+
 // Proporção real do arquivo de logo (largura / altura), para nunca
 // desenhá-lo achatado ou esticado no PDF.
 const LOGO_ASPECT_RATIO = 702 / 206;
@@ -168,7 +171,7 @@ export async function generateOrderPdf(order: any, items: any[]) {
       ];
     }),
     styles: { fontSize: 8, cellPadding: 5, valign: "middle" },
-    headStyles: { fillColor: [200, 30, 35], textColor: 255, halign: "center" },
+    headStyles: { fillColor: BRAND_COLOR, textColor: 255, halign: "center" },
     columnStyles: {
       0: { cellWidth: 38, minCellHeight: 38, halign: "center" },
       1: { cellWidth: 50, halign: "left" },
@@ -177,7 +180,7 @@ export async function generateOrderPdf(order: any, items: any[]) {
       4: { cellWidth: 65, halign: "right" },
       5: { cellWidth: 70, halign: "right" },
       6: { cellWidth: 70, halign: "right" },
-      7: { cellWidth: 75, halign: "right", fontStyle: "bold", textColor: [200, 30, 35] },
+      7: { cellWidth: 75, halign: "right", fontStyle: "bold", textColor: BRAND_COLOR },
       8: { cellWidth: 68, halign: "right" },
     },
     didDrawCell: (data: any) => {
@@ -220,10 +223,12 @@ export async function generateOrderPdf(order: any, items: any[]) {
   });
   doc.setFontSize(13);
   doc.setFont("helvetica", "bold");
+  doc.setTextColor(...BRAND_COLOR);
   doc.text("Total", pageWidth - 200, finalY + 55);
   doc.text(formatCurrency(Number(order.total ?? 0)), pageWidth - 40, finalY + 55, {
     align: "right",
   });
+  doc.setTextColor(40);
 
   // Vendedor e condição de pagamento, no rodapé do orçamento
   const footerY = finalY + 90;
