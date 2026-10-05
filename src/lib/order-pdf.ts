@@ -45,7 +45,7 @@ async function toThumbnail(
   url: string,
   maxDimension = 160,
   quality = 0.8
-): Promise<{ dataUrl: string; width: number; height: number } | null> {
+): Promise<{ dataUrl: string; width: number; height: number; format: "PNG" | "JPEG" } | null> {
   const original = await toDataUrl(url);
   if (!original) return null;
   try {
@@ -59,7 +59,15 @@ async function toThumbnail(
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
     ctx.drawImage(img, 0, 0, width, height);
-    return { dataUrl: canvas.toDataURL("image/jpeg", quality), width, height };
+
+    // Foto com fundo transparente (PNG/WEBP) precisa continuar em PNG —
+    // JPEG não tem transparência e pintaria o fundo de preto.
+    const originalMime = original.slice(5, original.indexOf(";"));
+    const preserveTransparency = /png|webp|gif/i.test(originalMime);
+    if (preserveTransparency) {
+      return { dataUrl: canvas.toDataURL("image/png"), width, height, format: "PNG" };
+    }
+    return { dataUrl: canvas.toDataURL("image/jpeg", quality), width, height, format: "JPEG" };
   } catch {
     return null;
   }
@@ -185,7 +193,7 @@ export async function generateOrderPdf(order: any, items: any[]) {
             const h = img.height * scale;
             const x = data.cell.x + (data.cell.width - w) / 2;
             const y = data.cell.y + (data.cell.height - h) / 2;
-            doc.addImage(img.dataUrl, "JPEG", x, y, w, h);
+            doc.addImage(img.dataUrl, img.format, x, y, w, h);
           } catch {
             /* ignore */
           }
