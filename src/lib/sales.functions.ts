@@ -682,6 +682,21 @@ export const importPriceTable = createServerFn({ method: "POST" })
     }
 
     const now = new Date().toISOString();
+
+    // Cria o registro da importação primeiro, pra poder vincular cada
+    // produto a ela — assim, excluir essa importação depois consegue
+    // remover exatamente os produtos que ela trouxe.
+    const { data: importLog, error: logError } = await supabase
+      .from("price_table_imports")
+      .insert({
+        file_name: data.fileName,
+        products_count: data.products.length,
+        imported_at: now,
+      })
+      .select("id")
+      .single();
+    if (logError) throw new Error(logError.message);
+
     const productRows = data.products.map((p) => ({
       code: p.code,
       description: p.description,
@@ -695,6 +710,7 @@ export const importPriceTable = createServerFn({ method: "POST" })
       price_varejo_10: p.table_price,
       price_varejo_75: p.table_price,
       price_updated_at: now,
+      price_table_import_id: importLog.id,
       active: true,
     }));
 
@@ -702,13 +718,6 @@ export const importPriceTable = createServerFn({ method: "POST" })
       .from("catalog_products")
       .upsert(productRows, { onConflict: "code" });
     if (error) throw new Error(error.message);
-
-    const { error: logError } = await supabase.from("price_table_imports").insert({
-      file_name: data.fileName,
-      products_count: productRows.length,
-      imported_at: now,
-    });
-    if (logError) throw new Error(logError.message);
 
     return {
       importedProducts: productRows.length,
@@ -824,12 +833,31 @@ export const deletePriceTableImport = createServerFn({ method: "POST" })
   .inputValidator((data) => z.object({ id: z.string().uuid() }).parse(data))
   .handler(async ({ context, data }) => {
     const { supabase } = context;
+
+    // Exclui os produtos que vieram dessa importação e que ninguém
+    // atualizou desde então (se um produto foi tocado por uma
+    // importação ou edição mais recente, price_table_import_id já
+    // aponta pra essa importação mais nova, e ele não é removido aqui).
+    const { error: productsError, count } = await supabase
+      .from("catalog_products")
+      .delete({ count: "exact" })
+      .eq("price_table_import_id", data.id);
+    if (productsError) {
+      if (productsError.message.toLowerCase().includes("foreign key")) {
+        throw new Error(
+          "Alguns produtos dessa importação já foram usados em pedidos e não puderam ser excluídos. Exclua-os individualmente no painel Produtos, se necessário."
+        );
+      }
+      throw new Error(productsError.message);
+    }
+
     const { error } = await supabase
       .from("price_table_imports")
       .delete()
       .eq("id", data.id);
     if (error) throw new Error(error.message);
-    return { id: data.id };
+
+    return { id: data.id, deletedProducts: count ?? 0 };
   });
 
 // Imagens dos produtos
