@@ -51,6 +51,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -272,6 +273,23 @@ function PriceTableSettingsPage() {
 
   const canImport = columnMap.code !== null && columnMap.table_price !== null;
 
+  // Códigos repetidos na própria planilha — se os preços forem
+  // diferentes entre as linhas repetidas, só a última entra (upsert por
+  // código), e é fácil isso passar despercebido sem esse aviso.
+  const duplicateCodes = useMemo(() => {
+    const byCode = new Map<string, number[]>();
+    previewProducts.forEach((p) => {
+      byCode.set(p.code, [...(byCode.get(p.code) ?? []), p.table_price]);
+    });
+    return Array.from(byCode.entries())
+      .filter(([, prices]) => prices.length > 1)
+      .map(([code, prices]) => ({
+        code,
+        count: prices.length,
+        samePrice: new Set(prices).size === 1,
+      }));
+  }, [previewProducts]);
+
   const handleConfirmImport = async () => {
     if (!canImport || previewProducts.length === 0) return;
     setImporting(true);
@@ -303,15 +321,27 @@ function PriceTableSettingsPage() {
     file_name: string;
   } | null>(null);
 
+  const [deletingImport, setDeletingImport] = useState(false);
+
   const handleDeleteImportLog = async () => {
     if (!deleteImportTarget) return;
+    setDeletingImport(true);
     try {
-      await deletePriceTableImport({ data: { id: deleteImportTarget.id } });
-      toast.success("Registro removido do histórico.");
+      const result = await deletePriceTableImport({ data: { id: deleteImportTarget.id } });
+      toast.success(
+        result.deletedProducts > 0
+          ? `Importação removida — ${result.deletedProducts} produto(s) excluído(s).`
+          : "Importação removida do histórico (nenhum produto vinculado a ela)."
+      );
       setDeleteImportTarget(null);
       queryClient.invalidateQueries({ queryKey: ["price-table-imports"] });
+      queryClient.invalidateQueries({ queryKey: ["catalog-product-codes"] });
+      queryClient.invalidateQueries({ queryKey: ["catalog"] });
+      queryClient.invalidateQueries({ queryKey: ["price-table-summary"] });
     } catch (err: any) {
-      toast.error(err.message || "Erro ao remover do histórico.");
+      toast.error(err.message || "Erro ao excluir essa importação.");
+    } finally {
+      setDeletingImport(false);
     }
   };
 
@@ -583,6 +613,10 @@ function PriceTableSettingsPage() {
     description: string;
   } | null>(null);
   const [deletingImage, setDeletingImage] = useState(false);
+  const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteProgress, setBulkDeleteProgress] = useState({ done: 0, total: 0 });
 
   const productsWithImages = useMemo(
     () =>
@@ -628,6 +662,51 @@ function PriceTableSettingsPage() {
       toast.error(err.message || "Erro ao remover a imagem.");
     } finally {
       setDeletingImage(false);
+    }
+  };
+
+  const toggleImageSelected = (id: string) => {
+    setSelectedImageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const allImagesSelected =
+    productsWithImages.length > 0 && selectedImageIds.size === productsWithImages.length;
+
+  const toggleSelectAllImages = () => {
+    setSelectedImageIds(
+      allImagesSelected ? new Set() : new Set(productsWithImages.map((p: any) => p.id))
+    );
+  };
+
+  const handleBulkDeleteImages = async () => {
+    const targets = (productsWithImages as any[]).filter((p) => selectedImageIds.has(p.id));
+    if (targets.length === 0) return;
+    setBulkDeleting(true);
+    setBulkDeleteProgress({ done: 0, total: targets.length });
+    let removed = 0;
+    for (const p of targets) {
+      try {
+        await deleteProductImage({ data: { code: p.code } });
+        removed++;
+      } catch {
+        /* segue pras próximas mesmo se uma falhar */
+      }
+      setBulkDeleteProgress((prev) => ({ ...prev, done: prev.done + 1 }));
+    }
+    setBulkDeleting(false);
+    setBulkDeleteOpen(false);
+    setSelectedImageIds(new Set());
+    queryClient.invalidateQueries({ queryKey: ["catalog-product-codes"] });
+    queryClient.invalidateQueries({ queryKey: ["catalog"] });
+    if (removed === targets.length) {
+      toast.success(`${removed} imagem(ns) removida(s).`);
+    } else {
+      toast.error(`${removed} de ${targets.length} imagem(ns) removida(s) — algumas falharam.`);
     }
   };
 
@@ -1067,11 +1146,31 @@ function PriceTableSettingsPage() {
             </button>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <CardContent className="pt-0">
+            <CardContent className="space-y-3 pt-0">
+              {productsWithImages.length > 0 && (
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Checkbox checked={allImagesSelected} onCheckedChange={toggleSelectAllImages} />
+                    Selecionar todas ({productsWithImages.length})
+                  </label>
+                  {selectedImageIds.size > 0 && (
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => setBulkDeleteOpen(true)}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Excluir selecionadas ({selectedImageIds.size})
+                    </Button>
+                  )}
+                </div>
+              )}
               <div className="max-h-96 overflow-y-auto rounded-md border">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-10"></TableHead>
                       <TableHead className="w-14">Foto</TableHead>
                       <TableHead>Código</TableHead>
                       <TableHead>Produto</TableHead>
@@ -1081,7 +1180,7 @@ function PriceTableSettingsPage() {
                   <TableBody>
                     {productsWithImages.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="h-16 text-center text-muted-foreground">
+                        <TableCell colSpan={5} className="h-16 text-center text-muted-foreground">
                           Nenhuma imagem cadastrada ainda.
                         </TableCell>
                       </TableRow>
@@ -1091,6 +1190,12 @@ function PriceTableSettingsPage() {
                         const dirty = editedCode.trim() !== p.code;
                         return (
                           <TableRow key={p.id}>
+                            <TableCell>
+                              <Checkbox
+                                checked={selectedImageIds.has(p.id)}
+                                onCheckedChange={() => toggleImageSelected(p.id)}
+                              />
+                            </TableCell>
                             <TableCell>
                               <img
                                 src={p.image_url}
@@ -1242,6 +1347,29 @@ function PriceTableSettingsPage() {
               )}
             </div>
 
+            {duplicateCodes.length > 0 && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                <p className="font-medium">
+                  {duplicateCodes.length} código(s) aparece(m) mais de uma vez
+                  nessa planilha:
+                </p>
+                <p className="mt-1">
+                  {duplicateCodes
+                    .slice(0, 10)
+                    .map(
+                      (d) =>
+                        `${d.code} (${d.count}x${d.samePrice ? "" : ", preços diferentes"})`
+                    )
+                    .join(", ")}
+                  {duplicateCodes.length > 10 && ` + ${duplicateCodes.length - 10} outro(s)`}
+                </p>
+                <p className="mt-1">
+                  Só a última linha de cada código vai entrar — confira se
+                  não é engano antes de confirmar.
+                </p>
+              </div>
+            )}
+
             {canImport && previewProducts.length > 0 && (
               <div className="rounded-md border">
                 <Table>
@@ -1306,14 +1434,14 @@ function PriceTableSettingsPage() {
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             {deleteImportTarget &&
-              `Remover o registro de "${deleteImportTarget.file_name}" do histórico? Isso não desfaz os preços já importados.`}
+              `Excluir a importação de "${deleteImportTarget.file_name}"? Isso remove do catálogo os produtos que vieram dessa importação e que não foram atualizados depois (produtos mais recentes não são afetados). Produtos já usados em algum pedido não podem ser excluídos.`}
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteImportTarget(null)}>
               Cancelar
             </Button>
-            <Button variant="destructive" onClick={handleDeleteImportLog}>
-              Remover
+            <Button variant="destructive" onClick={handleDeleteImportLog} disabled={deletingImport}>
+              {deletingImport ? "Excluindo..." : "Excluir"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1368,6 +1496,32 @@ function PriceTableSettingsPage() {
               disabled={deletingImage}
             >
               {deletingImage ? "Removendo..." : "Remover"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkDeleteOpen} onOpenChange={(open) => !bulkDeleting && setBulkDeleteOpen(open)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Excluir {selectedImageIds.size} imagem(ns)</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Tem certeza que deseja excluir as {selectedImageIds.size} imagens
+            selecionadas? Essa ação não pode ser desfeita.
+          </p>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setBulkDeleteOpen(false)}
+              disabled={bulkDeleting}
+            >
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={handleBulkDeleteImages} disabled={bulkDeleting}>
+              {bulkDeleting
+                ? `Excluindo ${bulkDeleteProgress.done}/${bulkDeleteProgress.total}...`
+                : "Excluir"}
             </Button>
           </DialogFooter>
         </DialogContent>
