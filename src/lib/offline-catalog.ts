@@ -115,14 +115,19 @@ export async function clearOfflineCatalog() {
   await del(SYNCED_AT_KEY);
 }
 
+/** Cada palavra digitada precisa aparecer em algum campo (código,
+ * referência, descrição ou código de barras) — mesmo critério usado na
+ * busca online, pra "eletroduto branco" e "elet bran" encontrarem o
+ * mesmo produto mesmo offline. */
 function matchesSearch(item: CatalogItem, term: string) {
-  const t = term.toLowerCase();
-  return (
-    item.code?.toLowerCase().includes(t) ||
-    item.ref?.toLowerCase().includes(t) ||
-    item.description?.toLowerCase().includes(t) ||
-    item.barcode?.toLowerCase().includes(t)
-  );
+  const words = term.toLowerCase().split(/\s+/).filter(Boolean);
+  const haystacks = [
+    item.code?.toLowerCase() ?? "",
+    item.ref?.toLowerCase() ?? "",
+    item.description?.toLowerCase() ?? "",
+    item.barcode?.toLowerCase() ?? "",
+  ];
+  return words.every((w) => haystacks.some((h) => h.includes(w)));
 }
 
 /**
