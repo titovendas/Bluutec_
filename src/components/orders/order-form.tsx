@@ -746,7 +746,7 @@ export function OrderForm({
                           handlePickProduct(p);
                         }
                       }}
-                      className="flex w-full cursor-pointer items-center gap-3 rounded-md border p-2 text-left hover:bg-accent"
+                      className="flex w-full cursor-pointer items-start gap-3 rounded-md border p-2 text-left hover:bg-accent"
                     >
                       <ProductImage
                         src={p.image_url}
@@ -754,12 +754,12 @@ export function OrderForm({
                         className="h-12 w-12 shrink-0"
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{p.description}</p>
+                        <p className="text-sm font-medium leading-snug">{p.description}</p>
                         <p className="text-xs text-muted-foreground">
                           Cód. {p.code} · IPI {p.ipi_percent}% · ST {p.st_percent}%
                         </p>
                       </div>
-                      <div className="text-right text-sm font-semibold">
+                      <div className="shrink-0 whitespace-nowrap text-right text-sm font-semibold">
                         {formatCurrency(
                           computeNetUnitPrice(
                             catalogTablePrice(p),
