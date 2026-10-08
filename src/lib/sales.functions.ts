@@ -1190,9 +1190,19 @@ export const listCatalog = createServerFn({ method: "GET" })
       .limit(60);
     const term = (data.search ?? "").trim();
     if (term) {
-      query = query.or(
-        `code.ilike.%${term}%,ref.ilike.%${term}%,description.ilike.%${term}%,barcode.ilike.%${term}%`
-      );
+      // Busca por palavra, não pela frase inteira: cada palavra
+      // digitada precisa aparecer em algum lugar (código, referência,
+      // descrição ou código de barras) — em qualquer ordem. Assim
+      // "eletroduto branco" e "elet bran" encontram o mesmo produto,
+      // mesmo a descrição sendo "ELETRODUTO PVC SEM ROSCA 3/4 BRANCO".
+      const words = term.split(/\s+/).filter(Boolean);
+      for (const word of words) {
+        const w = word.replace(/[%,]/g, "");
+        if (!w) continue;
+        query = query.or(
+          `code.ilike.%${w}%,ref.ilike.%${w}%,description.ilike.%${w}%,barcode.ilike.%${w}%`
+        );
+      }
     }
     const { data: rows, error } = await query;
     if (error) throw new Error(error.message);
