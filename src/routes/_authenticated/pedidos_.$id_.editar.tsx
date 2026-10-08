@@ -72,6 +72,9 @@ function EditOrderPage() {
         description: item.description ?? "",
         image_url: item.image_url ?? null,
         quantity: item.quantity,
+        // A embalagem não é guardada no pedido — vem do catálogo, logo
+        // abaixo, assim que ele for carregado.
+        package_qty: null,
         // Pedidos criados antes da tabela de preços da Bluutec não têm
         // table_price salvo — nesse caso, usa o próprio unit_price como
         // provisório até o catálogo real ser buscado abaixo.
@@ -95,6 +98,7 @@ function EditOrderPage() {
             if (!product) return item;
             return {
               ...item,
+              package_qty: product.package_qty ?? null,
               table_price: Number(
                 product.table_price ?? product.price_atacado ?? item.table_price
               ),
