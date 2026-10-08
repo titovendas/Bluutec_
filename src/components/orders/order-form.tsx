@@ -52,12 +52,23 @@ function parseDecimalInput(text: string) {
   return Number.isNaN(value) ? 0 : value;
 }
 
+/** A Bluutec só vende em embalagem fechada — arredonda pra cima pro
+ * múltiplo mais próximo da embalagem do produto (nunca abaixo de uma
+ * embalagem). Produto sem embalagem cadastrada não tem restrição. */
+function roundToPackage(qty: number, packageQty?: number | null) {
+  const q = Math.max(1, Math.round(qty) || 0);
+  if (!packageQty || packageQty <= 1) return q;
+  const packages = Math.max(1, Math.round(q / packageQty));
+  return packages * packageQty;
+}
+
 export type FormItem = {
   catalog_product_id: string;
   code: string;
   description: string;
   image_url: string | null;
   quantity: number;
+  package_qty: number | null;
   table_price: number;
   discount_percent: number;
   ipi_percent: number;
@@ -225,6 +236,7 @@ export function OrderForm({
           description: product.description,
           image_url: product.image_url ?? null,
           quantity,
+          package_qty: product.package_qty ?? null,
           table_price: catalogTablePrice(product),
           discount_percent: 0,
           // Usa o imposto cadastrado para o estado do cliente (ou o valor
@@ -239,12 +251,15 @@ export function OrderForm({
 
   const handlePickProduct = (product: any) => {
     setSelectedProduct(product);
-    setSelectedQty(1);
+    setSelectedQty(product.package_qty && product.package_qty > 0 ? product.package_qty : 1);
   };
 
   const handleConfirmAdd = () => {
     if (!selectedProduct) return;
-    addProduct(selectedProduct, Math.max(1, selectedQty));
+    addProduct(
+      selectedProduct,
+      roundToPackage(selectedQty, selectedProduct.package_qty)
+    );
     setSelectedProduct(null);
     setSelectedQty(1);
     setSearch("");
@@ -391,7 +406,8 @@ export function OrderForm({
                       <TableCell>
                         <Input
                           type="number"
-                          min={1}
+                          min={item.package_qty || 1}
+                          step={item.package_qty || 1}
                           value={item.quantity}
                           onFocus={(e) => e.target.select()}
                           onChange={(e) =>
@@ -403,8 +419,22 @@ export function OrderForm({
                               )
                             )
                           }
+                          onBlur={() =>
+                            setItems((prev) =>
+                              prev.map((i, idx) =>
+                                idx === index
+                                  ? { ...i, quantity: roundToPackage(i.quantity, i.package_qty) }
+                                  : i
+                              )
+                            )
+                          }
                           className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                         />
+                        {!!item.package_qty && item.package_qty > 1 && (
+                          <p className="mt-0.5 text-[10px] text-muted-foreground">
+                            cx {item.package_qty}un
+                          </p>
+                        )}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {formatCurrency(item.table_price)}
@@ -499,6 +529,9 @@ export function OrderForm({
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Tabela {formatCurrency(item.table_price)}
+                        {!!item.package_qty && item.package_qty > 1 && (
+                          <> · cx {item.package_qty}un</>
+                        )}
                       </p>
                     </div>
                     <Button
@@ -517,7 +550,8 @@ export function OrderForm({
                       <Label className="text-xs text-muted-foreground">Qtd</Label>
                       <Input
                         type="number"
-                        min={1}
+                        min={item.package_qty || 1}
+                        step={item.package_qty || 1}
                         value={item.quantity}
                         onFocus={(e) => e.target.select()}
                         onChange={(e) =>
@@ -525,6 +559,15 @@ export function OrderForm({
                             prev.map((i, idx) =>
                               idx === index
                                 ? { ...i, quantity: parseInt(e.target.value) || 1 }
+                                : i
+                            )
+                          )
+                        }
+                        onBlur={() =>
+                          setItems((prev) =>
+                            prev.map((i, idx) =>
+                              idx === index
+                                ? { ...i, quantity: roundToPackage(i.quantity, i.package_qty) }
                                 : i
                             )
                           )
@@ -654,6 +697,11 @@ export function OrderForm({
                     )}{" "}
                     / un.
                   </p>
+                  {!!selectedProduct.package_qty && (
+                    <p className="text-xs text-muted-foreground">
+                      Embalagem com {selectedProduct.package_qty} un.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -662,16 +710,27 @@ export function OrderForm({
                   type="button"
                   variant="outline"
                   size="icon"
-                  onClick={() => setSelectedQty((q) => Math.max(1, q - 1))}
+                  onClick={() =>
+                    setSelectedQty((q) =>
+                      Math.max(
+                        selectedProduct.package_qty || 1,
+                        q - (selectedProduct.package_qty || 1)
+                      )
+                    )
+                  }
                 >
                   <Minus className="h-4 w-4" />
                 </Button>
                 <Input
                   type="number"
-                  min={1}
+                  min={selectedProduct.package_qty || 1}
+                  step={selectedProduct.package_qty || 1}
                   value={selectedQty}
                   onFocus={(e) => e.target.select()}
                   onChange={(e) => setSelectedQty(parseInt(e.target.value) || 1)}
+                  onBlur={() =>
+                    setSelectedQty((q) => roundToPackage(q, selectedProduct.package_qty))
+                  }
                   className="w-24 text-center text-lg"
                   autoFocus
                 />
@@ -679,11 +738,18 @@ export function OrderForm({
                   type="button"
                   variant="outline"
                   size="icon"
-                  onClick={() => setSelectedQty((q) => q + 1)}
+                  onClick={() =>
+                    setSelectedQty((q) => q + (selectedProduct.package_qty || 1))
+                  }
                 >
                   <Plus className="h-4 w-4" />
                 </Button>
               </div>
+              {!!selectedProduct.package_qty && selectedProduct.package_qty > 1 && (
+                <p className="-mt-1 text-center text-xs text-muted-foreground">
+                  Vendido em múltiplos de {selectedProduct.package_qty} un.
+                </p>
+              )}
 
               <p className="text-center text-sm text-muted-foreground">
                 Subtotal:{" "}
@@ -734,7 +800,14 @@ export function OrderForm({
                     Nenhum produto encontrado.
                   </p>
                 ) : (
-                  catalog.map((p: any) => (
+                  catalog.map((p: any) => {
+                    // Imposto do estado do cliente (e ST zerado se for
+                    // construtora) — o mesmo que será aplicado ao adicionar.
+                    const tax = resolveTax(p.code, {
+                      ipi_percent: Number(p.ipi_percent ?? 0),
+                      st_percent: Number(p.st_percent ?? 0),
+                    });
+                    return (
                     <div
                       key={p.id}
                       role="button"
@@ -756,7 +829,10 @@ export function OrderForm({
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium leading-snug">{p.description}</p>
                         <p className="text-xs text-muted-foreground">
-                          Cód. {p.code} · IPI {p.ipi_percent}% · ST {p.st_percent}%
+                          Cód. {p.code} · IPI {tax.ipi_percent}% · ST {tax.st_percent}%
+                          {!!p.package_qty && p.package_qty > 1 && (
+                            <> · cx {p.package_qty}un</>
+                          )}
                         </p>
                       </div>
                       <div className="shrink-0 whitespace-nowrap text-right text-sm font-semibold">
@@ -771,7 +847,8 @@ export function OrderForm({
                         )}
                       </div>
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </>
