@@ -20,6 +20,7 @@ export type CatalogItem = {
   ipi_percent: number;
   st_percent: number;
   table_price: number | null;
+  package_qty: number | null;
   family: string | null;
   price_atacado: number | null;
   price_varejo_10: number | null;
