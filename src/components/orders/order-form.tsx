@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Plus, Search, Trash2, ArrowLeft, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -87,6 +88,8 @@ type Props = {
   setCashDiscountPercent: (v: number) => void;
   pickupDiscountPercent: number;
   setPickupDiscountPercent: (v: number) => void;
+  notes: string;
+  setNotes: (v: string) => void;
   items: FormItem[];
   setItems: React.Dispatch<React.SetStateAction<FormItem[]>>;
 };
@@ -103,6 +106,8 @@ export function OrderForm({
   setCashDiscountPercent,
   pickupDiscountPercent,
   setPickupDiscountPercent,
+  notes,
+  setNotes,
   items,
   setItems,
 }: Props) {
@@ -656,6 +661,21 @@ export function OrderForm({
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="space-y-2 rounded-md border p-4">
+        <Label htmlFor="order-notes">Observações do pedido</Label>
+        <Textarea
+          id="order-notes"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          maxLength={2000}
+          rows={3}
+          placeholder="Ex: entregar após as 14h, cliente retira na fábrica, condição combinada com o vendedor..."
+        />
+        <p className="text-xs text-muted-foreground">
+          Aparece também no PDF do orçamento.
+        </p>
       </div>
 
       <Dialog open={pickerOpen} onOpenChange={(open) => (open ? setPickerOpen(true) : closePicker())}>
