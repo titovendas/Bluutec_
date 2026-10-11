@@ -6,6 +6,7 @@ export type OrderDraft = {
   paymentTerm: string;
   cashDiscountPercent?: number;
   pickupDiscountPercent?: number;
+  notes?: string;
   items: any[];
   savedAt: string;
 };

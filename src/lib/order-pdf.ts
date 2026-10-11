@@ -1,10 +1,24 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import logo from "@/assets/bluutec-logo.png";
-import { formatCurrency, formatDate } from "@/lib/sales-formatters";
+import { formatCurrency, formatDate, orderNumberLabel } from "@/lib/sales-formatters";
 
 // Paleta Bluutec: azul da marca (#008ECA).
 const BRAND_COLOR: [number, number, number] = [0, 142, 202];
+
+// Dados da empresa que aparecem no topo do PDF.
+const COMPANY = {
+  legalName: "BLUUTEC PLÁSTICOS LTDA",
+  cnpj: "58.380.453/0001-70",
+  address: "R. Pedro de Alcântara Meira, 445 - Fazenda Velha, Araucária - PR, 83708-132",
+  phone: "(41) 3073-9338",
+  email: "comercial@bluutec.com.br",
+  site: "www.bluutec.com.br",
+};
+
+/** 21.3499999 -> "21,35" (sem casas sobrando). */
+const fmtPct = (n: unknown) =>
+  Number(n ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 
 // Proporção real do arquivo de logo (largura / altura), para nunca
 // desenhá-lo achatado ou esticado no PDF.
@@ -106,38 +120,71 @@ export async function generateOrderPdf(order: any, items: any[]) {
     }
   }
 
+  const isConfirmed = order.status === "pedido";
+  const numberLabel = orderNumberLabel(order);
+  const numberText = numberLabel === "—" ? "" : `Nº ${String(order.order_number).padStart(4, "0")}`;
+
+  // Dados da empresa, ao lado do logo
+  const companyX = 40 + LOGO_WIDTH + 18;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(40);
+  doc.text(COMPANY.legalName, companyX, 36);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(90);
+  [
+    `CNPJ: ${COMPANY.cnpj}`,
+    COMPANY.address,
+    [COMPANY.phone, COMPANY.email, COMPANY.site].filter(Boolean).join("  ·  "),
+  ]
+    .filter(Boolean)
+    .forEach((line, i) => doc.text(line, companyX, 47 + i * 10));
+
+  // Título, número e data, à direita
   doc.setFontSize(16);
+  doc.setFont("helvetica", "bold");
   doc.setTextColor(20);
-  doc.text("Cópia do pedido", pageWidth - 40, 44, { align: "right" });
+  doc.text(isConfirmed ? "Pedido" : "Orçamento", pageWidth - 40, 44, { align: "right" });
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   doc.setTextColor(110);
-  doc.text(`Nº ${String(order.id).slice(0, 8).toUpperCase()}`, pageWidth - 40, 60, {
+  if (numberText) doc.text(numberText, pageWidth - 40, 60, { align: "right" });
+  doc.text(formatDate(order.created_at), pageWidth - 40, numberText ? 74 : 60, {
     align: "right",
   });
-  doc.text(formatDate(order.created_at), pageWidth - 40, 74, { align: "right" });
 
   doc.setDrawColor(200);
   doc.line(40, 90, pageWidth - 40, 90);
 
+  // Dados do cliente: fonte menor e em duas colunas (ocupa metade da altura)
   doc.setTextColor(40);
-  doc.setFontSize(10);
+  doc.setFontSize(8.5);
   const customer = order.customer ?? {};
   const cityState = [customer.city, customer.state].filter(Boolean).join("/");
-  const infoLines = [
+  const colWidth = pageWidth / 2 - 50;
+  const wrap = (lines: string[]) =>
+    lines.flatMap((l) => doc.splitTextToSize(l, colWidth) as string[]);
+  const leftLines = wrap([
     `Cliente: ${order.customer_name ?? "—"}`,
     `CNPJ: ${formatCnpj(customer.document) || "—"}`,
     `Telefone: ${customer.phone ?? "—"}`,
+  ]);
+  const rightLines = wrap([
     `Rua: ${customer.address || "—"}`,
     `Bairro: ${customer.neighborhood || "—"}    CEP: ${formatCep(customer.zip_code) || "—"}`,
     `Cidade/UF: ${cityState || "—"}`,
-  ];
-  infoLines.forEach((line, i) => doc.text(line, 40, 108 + i * 14));
+  ]);
+  const leading = 11.5;
+  leftLines.forEach((line, i) => doc.text(line, 40, 106 + i * leading));
+  rightLines.forEach((line, i) => doc.text(line, pageWidth / 2, 106 + i * leading));
+  const infoRows = Math.max(leftLines.length, rightLines.length);
 
   const images = await Promise.all(
     items.map((item) => (item.image_url ? toThumbnail(item.image_url) : null))
   );
 
-  const tableStartY = 108 + infoLines.length * 14 + 16;
+  const tableStartY = 106 + infoRows * leading + 8;
 
   autoTable(doc, {
     startY: tableStartY,
@@ -164,8 +211,8 @@ export async function generateOrderPdf(order: any, items: any[]) {
         item.description ?? "—",
         String(item.quantity),
         formatCurrency(item.unit_price),
-        `${formatCurrency(item.ipi_value)}\n(${item.ipi_percent}%)`,
-        `${formatCurrency(item.st_value)}\n(${item.st_percent}%)`,
+        `${formatCurrency(item.ipi_value)}\n(${fmtPct(item.ipi_percent)}%)`,
+        `${formatCurrency(item.st_value)}\n(${fmtPct(item.st_percent)}%)`,
         formatCurrency(unitWithTaxes),
         formatCurrency(item.total),
       ];
@@ -205,7 +252,22 @@ export async function generateOrderPdf(order: any, items: any[]) {
     },
   });
 
-  const finalY = (doc as any).lastAutoTable.finalY + 20;
+  const pageHeight = doc.internal.pageSize.getHeight();
+  let finalY = (doc as any).lastAutoTable.finalY + 20;
+
+  // Observações do pedido (quebra de linha automática)
+  const notesText = String(order.notes ?? "").trim();
+  doc.setFontSize(9);
+  const notesLines = notesText
+    ? (doc.splitTextToSize(notesText, pageWidth - 80) as string[])
+    : [];
+
+  // Se não couber o restante na página, continua numa página nova
+  const needed = 105 + (notesLines.length ? 26 + notesLines.length * 11 : 0);
+  if (finalY + needed > pageHeight - 30) {
+    doc.addPage();
+    finalY = 50;
+  }
 
   // Totais alinhados à direita
   const totalsRows: [string, number][] = [
@@ -215,6 +277,7 @@ export async function generateOrderPdf(order: any, items: any[]) {
   ];
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
+  doc.setTextColor(40);
   totalsRows.forEach(([label, value], i) => {
     doc.text(label, pageWidth - 200, finalY + i * 15);
     doc.text(formatCurrency(value), pageWidth - 40, finalY + i * 15, {
@@ -245,5 +308,18 @@ export async function generateOrderPdf(order: any, items: any[]) {
   );
   doc.text("Frete: CIF", 40, footerY + 32);
 
-  doc.save(`pedido-${String(order.id).slice(0, 8)}.pdf`);
+  if (notesLines.length > 0) {
+    const notesY = footerY + 56;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("Observações:", 40, notesY);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    notesLines.forEach((line, i) => doc.text(line, 40, notesY + 14 + i * 11));
+  }
+
+  const fileNumber = order.order_number != null && numberText
+    ? String(order.order_number).padStart(4, "0")
+    : String(order.id).slice(0, 8);
+  doc.save(`${isConfirmed ? "pedido" : "orcamento"}-${fileNumber}.pdf`);
 }

@@ -32,3 +32,16 @@ export function statusVariant(
   };
   return variants[status] ?? "default";
 }
+
+/** Pedido criado sem internet ainda não tem número: ele só é numerado
+ * quando chega ao servidor, na sincronização. */
+export function isPendingOrderId(id: string | null | undefined) {
+  return !!id && id.startsWith("local-order-");
+}
+
+/** Número real do pedido, sequencial (ex: "#0012"). Pedidos que ainda
+ * não sincronizaram aparecem como "—". */
+export function orderNumberLabel(order: { id?: string | null; order_number?: number | null }) {
+  if (isPendingOrderId(order?.id) || order?.order_number == null) return "—";
+  return `#${String(order.order_number).padStart(4, "0")}`;
+}

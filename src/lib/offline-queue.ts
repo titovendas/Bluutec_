@@ -36,6 +36,7 @@ export type OrderPayload = {
   payment_term?: string;
   cash_discount_percent?: number;
   pickup_discount_percent?: number;
+  notes?: string;
   items: OrderItemPayload[];
 };
 
@@ -314,6 +315,7 @@ export async function getOrderForDisplay(id: string) {
     payment_term: op.payload.payment_term,
     cash_discount_percent: op.payload.cash_discount_percent ?? 0,
     pickup_discount_percent: op.payload.pickup_discount_percent ?? 0,
+    notes: op.payload.notes ?? "",
     subtotal: op.totals.subtotal,
     ipi_total: op.totals.ipi_total,
     st_total: op.totals.st_total,

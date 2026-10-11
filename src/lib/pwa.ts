@@ -62,7 +62,6 @@ const ROUTES_TO_WARM = [
   "/",
   "/auth",
   "/clientes",
-  "/produtos",
   "/pedidos",
   "/pedidos/novo",
   "/vendedores",

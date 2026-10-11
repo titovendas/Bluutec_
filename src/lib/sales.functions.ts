@@ -123,17 +123,6 @@ const customerSchema = z.object({
   customer_type: z.enum(["varejo", "construtora"]).default("varejo"),
 });
 
-const productSchema = z.object({
-  id: optionalId,
-  name: z.string().min(1),
-  description: z.string().optional().or(z.literal("")),
-  sku: z.string().optional().or(z.literal("")),
-  price: z.coerce.number().min(0),
-  cost: z.coerce.number().min(0).default(0),
-  stock: z.coerce.number().int().min(0).default(0),
-  active: z.boolean().default(true),
-});
-
 const sellerSchema = z.object({
   id: optionalId,
   name: z.string().min(1),
@@ -164,6 +153,7 @@ const orderSchema = z.object({
   payment_term: z.string().optional().or(z.literal("")),
   cash_discount_percent: z.coerce.number().min(0).max(100).default(0),
   pickup_discount_percent: z.coerce.number().min(0).max(100).default(0),
+  notes: z.string().max(2000).optional().or(z.literal("")),
   items: z.array(orderItemSchema).min(1),
 });
 
@@ -175,16 +165,6 @@ export const getDashboardStats = createServerFn({ method: "GET" })
 
     const { count: customersCount } = await supabase
       .from("customers")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", userId);
-
-    const { count: productsCount } = await supabase
-      .from("products")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", userId);
-
-    const { count: sellersCount } = await supabase
-      .from("sellers")
       .select("id", { count: "exact", head: true })
       .eq("user_id", userId);
 
@@ -202,8 +182,6 @@ export const getDashboardStats = createServerFn({ method: "GET" })
 
     return {
       customersCount: customersCount ?? 0,
-      productsCount: productsCount ?? 0,
-      sellersCount: sellersCount ?? 0,
       ordersCount: ordersCount ?? 0,
       recentOrders: recentOrders ?? [],
     };
@@ -375,71 +353,6 @@ export const deleteCustomer = createServerFn({ method: "POST" })
     return { success: true };
   });
 
-// Products
-export const listProducts = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const { supabase, userId } = context;
-    const { data, error } = await supabase
-      .from("products")
-      .select("*")
-      .eq("user_id", userId)
-      .order("name");
-    if (error) throw new Error(error.message);
-    return data ?? [];
-  });
-
-export const upsertProduct = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((data) => productSchema.parse(data))
-  .handler(async ({ context, data }) => {
-    const { supabase, userId } = context;
-    const payload = {
-      user_id: userId,
-      name: data.name,
-      description: data.description || null,
-      sku: data.sku || null,
-      price: data.price,
-      cost: data.cost,
-      stock: data.stock,
-      active: data.active,
-    };
-
-    if (data.id) {
-      const { data: result, error } = await supabase
-        .from("products")
-        .update(payload)
-        .eq("id", data.id)
-        .eq("user_id", userId)
-        .select()
-        .single();
-      if (error) throw new Error(error.message);
-      return result;
-    }
-
-    const { data: result, error } = await supabase
-      .from("products")
-      .insert(payload)
-      .select()
-      .single();
-    if (error) throw new Error(error.message);
-    return result;
-  });
-
-export const deleteProduct = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((data) => z.object({ id: z.string().uuid() }).parse(data))
-  .handler(async ({ context, data }) => {
-    const { supabase, userId } = context;
-    const { error } = await supabase
-      .from("products")
-      .delete()
-      .eq("id", data.id)
-      .eq("user_id", userId);
-    if (error) throw new Error(error.message);
-    return { success: true };
-  });
-
 // Sellers
 export const listSellers = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -590,6 +503,7 @@ export const upsertOrder = createServerFn({ method: "POST" })
       payment_term: data.payment_term || null,
       cash_discount_percent: data.cash_discount_percent,
       pickup_discount_percent: data.pickup_discount_percent,
+      notes: data.notes || null,
       subtotal,
       ipi_total,
       st_total,
@@ -597,6 +511,7 @@ export const upsertOrder = createServerFn({ method: "POST" })
     };
 
     let orderId = data.id;
+    let orderNumber: number | null = null;
 
     if (orderId) {
       const { error } = await supabase
@@ -615,6 +530,7 @@ export const upsertOrder = createServerFn({ method: "POST" })
         .single();
       if (error) throw new Error(error.message);
       orderId = inserted.id;
+      orderNumber = (inserted as any).order_number ?? null;
     }
 
     const itemsPayload = computed.map(({ item, base, ipi_value, st_value }) => ({
@@ -639,7 +555,7 @@ export const upsertOrder = createServerFn({ method: "POST" })
       .insert(itemsPayload);
     if (itemsError) throw new Error(itemsError.message);
 
-    return { id: orderId };
+    return { id: orderId, order_number: orderNumber };
   });
 
 // Tabela de preços
@@ -683,6 +599,12 @@ export const importPriceTable = createServerFn({ method: "POST" })
 
     const now = new Date().toISOString();
 
+    // Código repetido na mesma planilha: fica só a última linha (o banco
+    // recusa duas linhas do mesmo código no mesmo envio).
+    const uniqueProducts = Array.from(
+      new Map(data.products.map((p) => [p.code, p])).values()
+    );
+
     // Cria o registro da importação primeiro, pra poder vincular cada
     // produto a ela — assim, excluir essa importação depois consegue
     // remover exatamente os produtos que ela trouxe.
@@ -690,14 +612,14 @@ export const importPriceTable = createServerFn({ method: "POST" })
       .from("price_table_imports")
       .insert({
         file_name: data.fileName,
-        products_count: data.products.length,
+        products_count: uniqueProducts.length,
         imported_at: now,
       })
       .select("id")
       .single();
     if (logError) throw new Error(logError.message);
 
-    const productRows = data.products.map((p) => ({
+    const productRows = uniqueProducts.map((p) => ({
       code: p.code,
       description: p.description,
       family: p.family || null,
@@ -862,17 +784,47 @@ export const deletePriceTableImport = createServerFn({ method: "POST" })
 
 // Imagens dos produtos
 //
-// Cada imagem é nomeada com o código do produto (ex: 70032001.jpg). O
-// navegador envia o arquivo em base64; aqui ele é decodificado, salvo no
-// Storage do Supabase (bucket "product-images", substituindo se já
-// existir uma imagem com o mesmo código) e o link público é gravado no
-// produto correspondente.
+// As imagens ficam numa tabela própria (product_images), ligada ao produto
+// só pelo CÓDIGO. Assim, apagar ou reimportar a tabela de preços não apaga
+// as fotos, e apagar as fotos não mexe em nenhum produto nem imposto.
 const uploadProductImageSchema = z.object({
   code: z.string().min(1),
   fileName: z.string().min(1),
   contentType: z.string().min(1),
   base64Data: z.string().min(1),
 });
+
+const IN_CHUNK = 100;
+
+/** Anexa image_url (vindo de product_images, pelo código) a cada produto. */
+async function attachImages(supabase: any, rows: any[]): Promise<any[]> {
+  if (!rows || rows.length === 0) return rows ?? [];
+  const urlByCode = new Map<string, string>();
+  const codes = rows.map((r) => r.code).filter(Boolean) as string[];
+  for (let i = 0; i < codes.length; i += IN_CHUNK) {
+    const { data, error } = await supabase
+      .from("product_images")
+      .select("code, image_url")
+      .in("code", codes.slice(i, i + IN_CHUNK));
+    if (error) throw new Error(error.message);
+    for (const r of (data ?? []) as any[]) urlByCode.set(r.code, r.image_url);
+  }
+  return rows.map((r) => ({ ...r, image_url: urlByCode.get(r.code) ?? null }));
+}
+
+/** Descrição do catálogo para uma lista de códigos (código -> descrição). */
+async function descriptionsByCode(supabase: any, codes: string[]) {
+  const map = new Map<string, string>();
+  for (let i = 0; i < codes.length; i += IN_CHUNK) {
+    const { data, error } = await supabase
+      .from("catalog_products")
+      .select("code, description")
+      .in("code", codes.slice(i, i + IN_CHUNK));
+    if (error) throw new Error(error.message);
+    for (const r of (data ?? []) as any[]) map.set(r.code, r.description ?? "");
+  }
+  return map;
+}
 
 export const uploadProductImage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -900,15 +852,23 @@ export const uploadProductImage = createServerFn({ method: "POST" })
     // imagem de um código é substituída.
     const imageUrl = `${publicUrlData.publicUrl}?v=${Date.now()}`;
 
-    const { data: updated, error: updateError } = await supabase
-      .from("catalog_products")
-      .update({ image_url: imageUrl })
-      .eq("code", data.code)
-      .select("id, code")
-      .maybeSingle();
-    if (updateError) throw new Error(updateError.message);
+    const { error: saveError } = await supabase
+      .from("product_images")
+      .upsert(
+        { code: data.code, image_url: imageUrl, updated_at: new Date().toISOString() },
+        { onConflict: "code" }
+      );
+    if (saveError) throw new Error(saveError.message);
 
-    return { code: data.code, image_url: imageUrl, matched: !!updated };
+    // A foto fica guardada pelo código mesmo se o produto ainda não
+    // existir; "matched" só informa se já há um produto com esse código.
+    const { data: product } = await supabase
+      .from("catalog_products")
+      .select("id")
+      .eq("code", data.code)
+      .maybeSingle();
+
+    return { code: data.code, image_url: imageUrl, matched: !!product };
   });
 
 export const listCatalogProductCodes = createServerFn({ method: "GET" })
@@ -918,18 +878,40 @@ export const listCatalogProductCodes = createServerFn({ method: "GET" })
     const { data, error } = await supabase
       .from("catalog_products")
       .select(
-        "id, code, description, family, color, package_qty, table_price, price_updated_at, image_url"
+        "id, code, description, family, color, package_qty, table_price, price_updated_at"
       )
       .order("code");
     if (error) throw new Error(error.message);
-    return data ?? [];
+    return await attachImages(supabase, data ?? []);
+  });
+
+/** Todas as imagens cadastradas (inclusive de códigos que ainda não têm
+ * produto), com a descrição do produto quando existir. */
+export const listProductImages = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase } = context;
+    const { data, error } = await supabase
+      .from("product_images")
+      .select("code, image_url")
+      .order("code");
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as { code: string; image_url: string }[];
+    const descriptions = await descriptionsByCode(
+      supabase,
+      rows.map((r) => r.code)
+    );
+    return rows.map((r) => ({
+      code: r.code,
+      image_url: r.image_url,
+      description: descriptions.get(r.code) ?? null,
+    }));
   });
 
 /**
- * Remove a imagem de um produto: apaga o arquivo do armazenamento (se
- * conseguir identificar o caminho) e limpa o vínculo no produto. Um erro
- * ao apagar do armazenamento não impede de desvincular — o importante é
- * o produto deixar de mostrar a foto errada.
+ * Remove a imagem de um código: apaga o arquivo do armazenamento (se
+ * conseguir identificar o caminho) e o vínculo. Não mexe em produto
+ * nenhum nem em impostos.
  */
 export const deleteProductImage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -937,38 +919,36 @@ export const deleteProductImage = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const { supabase } = context;
 
-    const { data: product, error } = await supabase
-      .from("catalog_products")
-      .select("id, image_url")
+    const { data: image, error } = await supabase
+      .from("product_images")
+      .select("image_url")
       .eq("code", data.code)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    if (!product) throw new Error("Produto não encontrado.");
 
-    if (product.image_url) {
+    if (image?.image_url) {
       const marker = "/product-images/";
-      const idx = product.image_url.indexOf(marker);
+      const idx = image.image_url.indexOf(marker);
       if (idx !== -1) {
-        let path = product.image_url.slice(idx + marker.length);
+        let path = image.image_url.slice(idx + marker.length);
         const qIdx = path.indexOf("?");
         if (qIdx !== -1) path = path.slice(0, qIdx);
         await supabase.storage.from("product-images").remove([path]);
       }
     }
 
-    const { error: updateError } = await supabase
-      .from("catalog_products")
-      .update({ image_url: null })
-      .eq("id", product.id);
-    if (updateError) throw new Error(updateError.message);
+    const { error: deleteError } = await supabase
+      .from("product_images")
+      .delete()
+      .eq("code", data.code);
+    if (deleteError) throw new Error(deleteError.message);
 
     return { code: data.code };
   });
 
 /**
- * Move a imagem de um produto (fromCode) para outro (toCode) — usado
- * quando a foto foi carregada com o código errado. O produto de origem
- * fica sem imagem.
+ * Move a imagem de um código (fromCode) para outro (toCode) — usado
+ * quando a foto foi carregada com o código errado.
  */
 export const reassignProductImage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -980,32 +960,41 @@ export const reassignProductImage = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const { supabase } = context;
 
-    const { data: fromProduct, error: fromError } = await supabase
-      .from("catalog_products")
-      .select("id, image_url")
+    const { data: fromImage, error: fromError } = await supabase
+      .from("product_images")
+      .select("image_url")
       .eq("code", data.fromCode)
       .maybeSingle();
     if (fromError) throw new Error(fromError.message);
-    if (!fromProduct?.image_url) {
-      throw new Error("Esse produto não tem imagem para mover.");
+    if (!fromImage?.image_url) {
+      throw new Error("Esse código não tem imagem para mover.");
     }
 
     const { data: toProduct, error: toError } = await supabase
       .from("catalog_products")
-      .update({ image_url: fromProduct.image_url })
-      .eq("code", data.toCode)
       .select("id, code")
+      .eq("code", data.toCode)
       .maybeSingle();
     if (toError) throw new Error(toError.message);
     if (!toProduct) {
       throw new Error(`Código "${data.toCode}" não encontrado no catálogo.`);
     }
 
-    const { error: clearError } = await supabase
-      .from("catalog_products")
-      .update({ image_url: null })
-      .eq("id", fromProduct.id);
-    if (clearError) throw new Error(clearError.message);
+    const { error: saveError } = await supabase
+      .from("product_images")
+      .upsert(
+        { code: data.toCode, image_url: fromImage.image_url, updated_at: new Date().toISOString() },
+        { onConflict: "code" }
+      );
+    if (saveError) throw new Error(saveError.message);
+
+    if (data.fromCode !== data.toCode) {
+      const { error: clearError } = await supabase
+        .from("product_images")
+        .delete()
+        .eq("code", data.fromCode);
+      if (clearError) throw new Error(clearError.message);
+    }
 
     return { toCode: toProduct.code };
   });
@@ -1014,9 +1003,10 @@ export const reassignProductImage = createServerFn({ method: "POST" })
 //
 // Cada estado brasileiro tem sua própria tributação. A importação é por
 // estado: código do produto + IPI + ST (mesmo mapeamento genérico de
-// colunas da tabela de preços). Reimportar sobrescreve IPI e ST do
-// estado — se uma coluna não for mapeada nessa importação, ela entra
-// como 0 (não mantém o valor antigo).
+// colunas da tabela de preços). Os impostos ficam ligados ao produto só
+// pelo CÓDIGO — apagar ou reimportar a tabela de preços não apaga os
+// impostos. Reimportar sobrescreve IPI e ST do estado; se uma coluna
+// não for mapeada nessa importação, ela entra como 0.
 const taxRateRowSchema = z.object({
   code: z.string().min(1),
   ipi_percent: z.coerce.number().min(0).default(0),
@@ -1040,39 +1030,32 @@ export const importTaxRates = createServerFn({ method: "POST" })
     }
     const uf = data.uf.toUpperCase();
 
-    const codes = data.rates.map((r) => r.code);
-    const { data: products, error: productsError } = await supabase
-      .from("catalog_products")
-      .select("id, code")
-      .in("code", codes);
-    if (productsError) throw new Error(productsError.message);
+    // Código repetido na planilha: fica só a última linha.
+    const unique = Array.from(
+      new Map(
+        data.rates.map((r) => [
+          r.code,
+          { code: r.code, uf, ipi_percent: r.ipi_percent, st_percent: r.st_percent },
+        ])
+      ).values()
+    );
 
-    const codeToId = new Map((products ?? []).map((p: any) => [p.code, p.id]));
-    const notFound: string[] = [];
-    const rows = data.rates
-      .map((r) => {
-        const productId = codeToId.get(r.code);
-        if (!productId) {
-          notFound.push(r.code);
-          return null;
-        }
-        return {
-          product_id: productId,
-          uf,
-          ipi_percent: r.ipi_percent,
-          st_percent: r.st_percent,
-        };
-      })
-      .filter((r): r is NonNullable<typeof r> => !!r);
-
-    if (rows.length > 0) {
+    for (let i = 0; i < unique.length; i += 500) {
       const { error } = await supabase
         .from("product_tax_rates")
-        .upsert(rows, { onConflict: "product_id,uf" });
+        .upsert(unique.slice(i, i + 500), { onConflict: "code,uf" });
       if (error) throw new Error(error.message);
     }
 
-    return { uf, imported: rows.length, notFound };
+    // Só informativo: códigos que ainda não estão na tabela de preços
+    // continuam guardados e passam a valer quando o produto for cadastrado.
+    const known = await descriptionsByCode(
+      supabase,
+      unique.map((r) => r.code)
+    );
+    const notFound = unique.filter((r) => !known.has(r.code)).map((r) => r.code);
+
+    return { uf, imported: unique.length, notFound };
   });
 
 /** Quantos produtos têm imposto configurado, por estado. */
@@ -1089,8 +1072,8 @@ export const listTaxRatesSummary = createServerFn({ method: "GET" })
     return counts;
   });
 
-/** Impostos cadastrados para um estado específico, com código e descrição
- * do produto já junto (pra exibir e editar na tela). */
+/** Impostos cadastrados para um estado específico, com a descrição do
+ * produto (quando já existe no catálogo) pra exibir e editar na tela. */
 export const listTaxRatesByUf = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data) => z.object({ uf: z.string().min(2).max(2) }).parse(data))
@@ -1098,16 +1081,21 @@ export const listTaxRatesByUf = createServerFn({ method: "GET" })
     const { supabase } = context;
     const { data: rows, error } = await supabase
       .from("product_tax_rates")
-      .select("id, ipi_percent, st_percent, catalog_products(code, description)")
+      .select("id, code, ipi_percent, st_percent")
       .eq("uf", data.uf.toUpperCase());
     if (error) throw new Error(error.message);
-    return ((rows ?? []) as any[])
+    const list = (rows ?? []) as any[];
+    const descriptions = await descriptionsByCode(
+      supabase,
+      list.map((r) => r.code)
+    );
+    return list
       .map((r) => ({
-        id: r.id,
-        ipi_percent: r.ipi_percent,
-        st_percent: r.st_percent,
-        code: r.catalog_products?.code ?? "",
-        description: r.catalog_products?.description ?? "",
+        id: r.id as string,
+        code: r.code as string,
+        ipi_percent: r.ipi_percent as number,
+        st_percent: r.st_percent as number,
+        description: descriptions.get(r.code) ?? "",
       }))
       .sort((a, b) => a.code.localeCompare(b.code));
   });
@@ -1147,33 +1135,6 @@ export const deleteTaxRate = createServerFn({ method: "POST" })
     return { id: data.id };
   });
 
-/**
- * Busca os impostos (IPI/ST) cadastrados para um estado, para um
- * conjunto de produtos — usado ao montar um orçamento, assim que o
- * cliente é selecionado, pra já calcular os impostos dos itens.
- */
-export const getTaxRatesForOrder = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((data) =>
-    z
-      .object({
-        uf: z.string().min(2).max(2),
-        productIds: z.array(z.string().uuid()),
-      })
-      .parse(data)
-  )
-  .handler(async ({ context, data }) => {
-    const { supabase } = context;
-    if (data.productIds.length === 0) return [];
-    const { data: rows, error } = await supabase
-      .from("product_tax_rates")
-      .select("product_id, ipi_percent, st_percent")
-      .eq("uf", data.uf.toUpperCase())
-      .in("product_id", data.productIds);
-    if (error) throw new Error(error.message);
-    return rows ?? [];
-  });
-
 // Catalog
 export const listCatalog = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -1206,7 +1167,8 @@ export const listCatalog = createServerFn({ method: "GET" })
     }
     const { data: rows, error } = await query;
     if (error) throw new Error(error.message);
-    return term ? sortCatalogByRelevance(rows ?? [], term) : rows ?? [];
+    const withImages = await attachImages(supabase, rows ?? []);
+    return term ? sortCatalogByRelevance(withImages, term) : withImages;
   });
 
 /**
@@ -1259,7 +1221,7 @@ export const listCatalogAll = createServerFn({ method: "GET" })
       if (rows.length < pageSize) break;
       from += pageSize;
     }
-    return all;
+    return await attachImages(supabase, all);
   });
 
 /**
@@ -1281,7 +1243,7 @@ export const getCatalogProductsByIds = createServerFn({ method: "GET" })
       .select("*")
       .in("id", data.ids);
     if (error) throw new Error(error.message);
-    return rows ?? [];
+    return await attachImages(supabase, rows ?? []);
   });
 
 export const updateOrderStatus = createServerFn({ method: "POST" })
