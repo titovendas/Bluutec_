@@ -26,6 +26,10 @@ type ComboboxProps = {
   searchPlaceholder?: string;
   emptyText?: string;
   disabled?: boolean;
+  /** "anywhere" (padrão): acha o texto em qualquer parte. "start": só traz
+   * as opções que COMEÇAM com o que foi digitado (ex: prazos de pagamento,
+   * onde digitar 14 deve trazer os que começam com 14). */
+  matchFrom?: "anywhere" | "start";
 };
 
 /** Select com busca — usado quando a lista de opções pode crescer bastante
@@ -39,6 +43,7 @@ export function Combobox({
   searchPlaceholder = "Buscar...",
   emptyText = "Nada encontrado.",
   disabled,
+  matchFrom = "anywhere",
 }: ComboboxProps) {
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.value === value);
@@ -61,7 +66,14 @@ export function Combobox({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-        <Command>
+        <Command
+          {...(matchFrom === "start"
+            ? {
+                filter: (value: string, search: string) =>
+                  value.trim().toLowerCase().startsWith(search.trim().toLowerCase()) ? 1 : 0,
+              }
+            : {})}
+        >
           <CommandInput placeholder={searchPlaceholder} />
           <CommandList>
             <CommandEmpty>{emptyText}</CommandEmpty>
