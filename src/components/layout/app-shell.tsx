@@ -2,7 +2,6 @@ import { Link, useLocation, useRouter } from "@tanstack/react-router";
 import {
   LayoutDashboard,
   Users,
-  Package,
   ShoppingCart,
   UserCircle,
   Settings,
@@ -25,7 +24,6 @@ const SIDEBAR_COLLAPSED_KEY = "fv:sidebar-collapsed";
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/clientes", label: "Clientes", icon: Users },
-  { to: "/produtos", label: "Produtos", icon: Package },
   { to: "/pedidos", label: "Pedidos", icon: ShoppingCart },
   { to: "/vendedores", label: "Vendedores", icon: UserCircle },
   { to: "/configuracoes", label: "Configurações", icon: Settings },
