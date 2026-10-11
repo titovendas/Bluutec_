@@ -108,7 +108,7 @@ function formatCnpj(doc?: string | null) {
 }
 
 export async function generateOrderPdf(order: any, items: any[]) {
-  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
   const pageWidth = doc.internal.pageSize.getWidth();
 
   const logoData = await toDataUrl(logo);
@@ -124,8 +124,10 @@ export async function generateOrderPdf(order: any, items: any[]) {
   const numberLabel = orderNumberLabel(order);
   const numberText = numberLabel === "—" ? "" : `Nº ${String(order.order_number).padStart(4, "0")}`;
 
-  // Dados da empresa, ao lado do logo
+  // Dados da empresa, ao lado do logo (quebra de linha automática pra não
+  // encostar no título, à direita)
   const companyX = 40 + LOGO_WIDTH + 18;
+  const companyMaxWidth = pageWidth - 40 - 105 - companyX;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
   doc.setTextColor(40);
@@ -133,13 +135,15 @@ export async function generateOrderPdf(order: any, items: any[]) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(90);
-  [
+  const companyLines = [
     `CNPJ: ${COMPANY.cnpj}`,
     COMPANY.address,
     [COMPANY.phone, COMPANY.email, COMPANY.site].filter(Boolean).join("  ·  "),
   ]
     .filter(Boolean)
-    .forEach((line, i) => doc.text(line, companyX, 47 + i * 10));
+    .flatMap((l) => doc.splitTextToSize(l, companyMaxWidth) as string[]);
+  companyLines.forEach((line, i) => doc.text(line, companyX, 47 + i * 10));
+  const headerBottom = Math.max(90, 47 + (companyLines.length - 1) * 10 + 14);
 
   // Título, número e data, à direita
   doc.setFontSize(16);
@@ -155,7 +159,8 @@ export async function generateOrderPdf(order: any, items: any[]) {
   });
 
   doc.setDrawColor(200);
-  doc.line(40, 90, pageWidth - 40, 90);
+  doc.line(40, headerBottom, pageWidth - 40, headerBottom);
+  const infoStartY = headerBottom + 16;
 
   // Dados do cliente: fonte menor e em duas colunas (ocupa metade da altura)
   doc.setTextColor(40);
@@ -176,32 +181,34 @@ export async function generateOrderPdf(order: any, items: any[]) {
     `Cidade/UF: ${cityState || "—"}`,
   ]);
   const leading = 11.5;
-  leftLines.forEach((line, i) => doc.text(line, 40, 106 + i * leading));
-  rightLines.forEach((line, i) => doc.text(line, pageWidth / 2, 106 + i * leading));
+  leftLines.forEach((line, i) => doc.text(line, 40, infoStartY + i * leading));
+  rightLines.forEach((line, i) => doc.text(line, pageWidth / 2, infoStartY + i * leading));
   const infoRows = Math.max(leftLines.length, rightLines.length);
 
   const images = await Promise.all(
     items.map((item) => (item.image_url ? toThumbnail(item.image_url) : null))
   );
 
-  const tableStartY = 106 + infoRows * leading + 8;
+  const tableStartY = infoStartY + infoRows * leading + 8;
 
   // Nenhum produto da tabela atual tem IPI: a coluna (e a linha do total)
   // só aparece se algum item do pedido tiver IPI, pra nunca esconder imposto.
   const showIpi = items.some((i: any) => Number(i.ipi_percent) > 0);
 
+  // Larguras pensadas para a página em pé (515pt úteis): a descrição fica
+  // com o que sobra e quebra em duas linhas quando necessário.
   const colStyles: Record<number, any> = {
     0: { cellWidth: 38, minCellHeight: 38, halign: "center" },
-    1: { cellWidth: 50, halign: "left" },
+    1: { cellWidth: 48, halign: "left" },
     2: { halign: "left" },
-    3: { cellWidth: 32, halign: "right" },
-    4: { cellWidth: 65, halign: "right" },
+    3: { cellWidth: 30, halign: "right" },
+    4: { cellWidth: 54, halign: "right" },
   };
   let col = 5;
-  if (showIpi) colStyles[col++] = { cellWidth: 70, halign: "right" };
-  colStyles[col++] = { cellWidth: 70, halign: "right" }; // ST
-  colStyles[col++] = { cellWidth: 75, halign: "right", fontStyle: "bold", textColor: BRAND_COLOR };
-  colStyles[col++] = { cellWidth: 68, halign: "right" }; // Total
+  if (showIpi) colStyles[col++] = { cellWidth: 56, halign: "right" };
+  colStyles[col++] = { cellWidth: 56, halign: "right" }; // ST
+  colStyles[col++] = { cellWidth: 60, halign: "right", fontStyle: "bold", textColor: BRAND_COLOR };
+  colStyles[col++] = { cellWidth: 64, halign: "right" }; // Total
 
   autoTable(doc, {
     startY: tableStartY,
@@ -236,8 +243,9 @@ export async function generateOrderPdf(order: any, items: any[]) {
         formatCurrency(item.total),
       ];
     }),
-    styles: { fontSize: 8, cellPadding: 5, valign: "middle" },
-    headStyles: { fillColor: BRAND_COLOR, textColor: 255, halign: "center" },
+    styles: { fontSize: 8, cellPadding: { top: 4, bottom: 4, left: 3, right: 3 }, valign: "middle" },
+    headStyles: { fillColor: BRAND_COLOR, textColor: 255, halign: "center", fontSize: 7.5 },
+    margin: { left: 40, right: 40 },
     columnStyles: colStyles,
     didDrawCell: (data: any) => {
       if (data.section === "body" && data.column.index === 0) {
