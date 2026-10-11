@@ -15,9 +15,10 @@ import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedClientesRouteImport } from './routes/_authenticated/clientes'
 import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authenticated/configuracoes'
 import { Route as AuthenticatedPedidosRouteImport } from './routes/_authenticated/pedidos'
-import { Route as AuthenticatedProdutosRouteImport } from './routes/_authenticated/produtos'
 import { Route as AuthenticatedVendedoresRouteImport } from './routes/_authenticated/vendedores'
+import { Route as AuthenticatedConfiguracoesImpostosRouteImport } from './routes/_authenticated/configuracoes_.impostos'
 import { Route as AuthenticatedConfiguracoesPrazosPagamentoRouteImport } from './routes/_authenticated/configuracoes_.prazos-pagamento'
+import { Route as AuthenticatedConfiguracoesTabelaPrecosRouteImport } from './routes/_authenticated/configuracoes_.tabela-precos'
 import { Route as AuthenticatedPedidosIdRouteImport } from './routes/_authenticated/pedidos_.$id'
 import { Route as AuthenticatedPedidosNovoRouteImport } from './routes/_authenticated/pedidos_.novo'
 import { Route as AuthenticatedPedidosIdEditarRouteImport } from './routes/_authenticated/pedidos_.$id_.editar'
@@ -52,20 +53,27 @@ const AuthenticatedPedidosRoute = AuthenticatedPedidosRouteImport.update({
   path: '/pedidos',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedProdutosRoute = AuthenticatedProdutosRouteImport.update({
-  id: '/produtos',
-  path: '/produtos',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedVendedoresRoute = AuthenticatedVendedoresRouteImport.update({
   id: '/vendedores',
   path: '/vendedores',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedConfiguracoesImpostosRoute =
+  AuthenticatedConfiguracoesImpostosRouteImport.update({
+    id: '/configuracoes_/impostos',
+    path: '/configuracoes/impostos',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedConfiguracoesPrazosPagamentoRoute =
   AuthenticatedConfiguracoesPrazosPagamentoRouteImport.update({
     id: '/configuracoes_/prazos-pagamento',
     path: '/configuracoes/prazos-pagamento',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedConfiguracoesTabelaPrecosRoute =
+  AuthenticatedConfiguracoesTabelaPrecosRouteImport.update({
+    id: '/configuracoes_/tabela-precos',
+    path: '/configuracoes/tabela-precos',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedPedidosIdRoute = AuthenticatedPedidosIdRouteImport.update({
@@ -92,9 +100,10 @@ export interface FileRoutesByFullPath {
   '/clientes': typeof AuthenticatedClientesRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/pedidos': typeof AuthenticatedPedidosRoute
-  '/produtos': typeof AuthenticatedProdutosRoute
   '/vendedores': typeof AuthenticatedVendedoresRoute
+  '/configuracoes/impostos': typeof AuthenticatedConfiguracoesImpostosRoute
   '/configuracoes/prazos-pagamento': typeof AuthenticatedConfiguracoesPrazosPagamentoRoute
+  '/configuracoes/tabela-precos': typeof AuthenticatedConfiguracoesTabelaPrecosRoute
   '/pedidos/$id': typeof AuthenticatedPedidosIdRoute
   '/pedidos/novo': typeof AuthenticatedPedidosNovoRoute
   '/pedidos/$id/editar': typeof AuthenticatedPedidosIdEditarRoute
@@ -104,10 +113,11 @@ export interface FileRoutesByTo {
   '/clientes': typeof AuthenticatedClientesRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/pedidos': typeof AuthenticatedPedidosRoute
-  '/produtos': typeof AuthenticatedProdutosRoute
   '/vendedores': typeof AuthenticatedVendedoresRoute
   '/': typeof AuthenticatedIndexRoute
+  '/configuracoes/impostos': typeof AuthenticatedConfiguracoesImpostosRoute
   '/configuracoes/prazos-pagamento': typeof AuthenticatedConfiguracoesPrazosPagamentoRoute
+  '/configuracoes/tabela-precos': typeof AuthenticatedConfiguracoesTabelaPrecosRoute
   '/pedidos/$id': typeof AuthenticatedPedidosIdRoute
   '/pedidos/novo': typeof AuthenticatedPedidosNovoRoute
   '/pedidos/$id/editar': typeof AuthenticatedPedidosIdEditarRoute
@@ -119,10 +129,11 @@ export interface FileRoutesById {
   '/_authenticated/clientes': typeof AuthenticatedClientesRoute
   '/_authenticated/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/_authenticated/pedidos': typeof AuthenticatedPedidosRoute
-  '/_authenticated/produtos': typeof AuthenticatedProdutosRoute
   '/_authenticated/vendedores': typeof AuthenticatedVendedoresRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/_authenticated/configuracoes_/impostos': typeof AuthenticatedConfiguracoesImpostosRoute
   '/_authenticated/configuracoes_/prazos-pagamento': typeof AuthenticatedConfiguracoesPrazosPagamentoRoute
+  '/_authenticated/configuracoes_/tabela-precos': typeof AuthenticatedConfiguracoesTabelaPrecosRoute
   '/_authenticated/pedidos_/$id': typeof AuthenticatedPedidosIdRoute
   '/_authenticated/pedidos_/novo': typeof AuthenticatedPedidosNovoRoute
   '/_authenticated/pedidos_/$id_/editar': typeof AuthenticatedPedidosIdEditarRoute
@@ -135,9 +146,10 @@ export interface FileRouteTypes {
     | '/clientes'
     | '/configuracoes'
     | '/pedidos'
-    | '/produtos'
     | '/vendedores'
+    | '/configuracoes/impostos'
     | '/configuracoes/prazos-pagamento'
+    | '/configuracoes/tabela-precos'
     | '/pedidos/$id'
     | '/pedidos/novo'
     | '/pedidos/$id/editar'
@@ -147,10 +159,11 @@ export interface FileRouteTypes {
     | '/clientes'
     | '/configuracoes'
     | '/pedidos'
-    | '/produtos'
     | '/vendedores'
     | '/'
+    | '/configuracoes/impostos'
     | '/configuracoes/prazos-pagamento'
+    | '/configuracoes/tabela-precos'
     | '/pedidos/$id'
     | '/pedidos/novo'
     | '/pedidos/$id/editar'
@@ -161,10 +174,11 @@ export interface FileRouteTypes {
     | '/_authenticated/clientes'
     | '/_authenticated/configuracoes'
     | '/_authenticated/pedidos'
-    | '/_authenticated/produtos'
     | '/_authenticated/vendedores'
     | '/_authenticated/'
+    | '/_authenticated/configuracoes_/impostos'
     | '/_authenticated/configuracoes_/prazos-pagamento'
+    | '/_authenticated/configuracoes_/tabela-precos'
     | '/_authenticated/pedidos_/$id'
     | '/_authenticated/pedidos_/novo'
     | '/_authenticated/pedidos_/$id_/editar'
@@ -219,13 +233,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPedidosRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/produtos': {
-      id: '/_authenticated/produtos'
-      path: '/produtos'
-      fullPath: '/produtos'
-      preLoaderRoute: typeof AuthenticatedProdutosRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/vendedores': {
       id: '/_authenticated/vendedores'
       path: '/vendedores'
@@ -233,11 +240,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedVendedoresRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/configuracoes_/impostos': {
+      id: '/_authenticated/configuracoes_/impostos'
+      path: '/configuracoes/impostos'
+      fullPath: '/configuracoes/impostos'
+      preLoaderRoute: typeof AuthenticatedConfiguracoesImpostosRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/configuracoes_/prazos-pagamento': {
       id: '/_authenticated/configuracoes_/prazos-pagamento'
       path: '/configuracoes/prazos-pagamento'
       fullPath: '/configuracoes/prazos-pagamento'
       preLoaderRoute: typeof AuthenticatedConfiguracoesPrazosPagamentoRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/configuracoes_/tabela-precos': {
+      id: '/_authenticated/configuracoes_/tabela-precos'
+      path: '/configuracoes/tabela-precos'
+      fullPath: '/configuracoes/tabela-precos'
+      preLoaderRoute: typeof AuthenticatedConfiguracoesTabelaPrecosRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/pedidos_/$id': {
@@ -268,10 +289,11 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedClientesRoute: typeof AuthenticatedClientesRoute
   AuthenticatedConfiguracoesRoute: typeof AuthenticatedConfiguracoesRoute
   AuthenticatedPedidosRoute: typeof AuthenticatedPedidosRoute
-  AuthenticatedProdutosRoute: typeof AuthenticatedProdutosRoute
   AuthenticatedVendedoresRoute: typeof AuthenticatedVendedoresRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
+  AuthenticatedConfiguracoesImpostosRoute: typeof AuthenticatedConfiguracoesImpostosRoute
   AuthenticatedConfiguracoesPrazosPagamentoRoute: typeof AuthenticatedConfiguracoesPrazosPagamentoRoute
+  AuthenticatedConfiguracoesTabelaPrecosRoute: typeof AuthenticatedConfiguracoesTabelaPrecosRoute
   AuthenticatedPedidosIdRoute: typeof AuthenticatedPedidosIdRoute
   AuthenticatedPedidosNovoRoute: typeof AuthenticatedPedidosNovoRoute
   AuthenticatedPedidosIdEditarRoute: typeof AuthenticatedPedidosIdEditarRoute
@@ -281,11 +303,14 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedClientesRoute: AuthenticatedClientesRoute,
   AuthenticatedConfiguracoesRoute: AuthenticatedConfiguracoesRoute,
   AuthenticatedPedidosRoute: AuthenticatedPedidosRoute,
-  AuthenticatedProdutosRoute: AuthenticatedProdutosRoute,
   AuthenticatedVendedoresRoute: AuthenticatedVendedoresRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
+  AuthenticatedConfiguracoesImpostosRoute:
+    AuthenticatedConfiguracoesImpostosRoute,
   AuthenticatedConfiguracoesPrazosPagamentoRoute:
     AuthenticatedConfiguracoesPrazosPagamentoRoute,
+  AuthenticatedConfiguracoesTabelaPrecosRoute:
+    AuthenticatedConfiguracoesTabelaPrecosRoute,
   AuthenticatedPedidosIdRoute: AuthenticatedPedidosIdRoute,
   AuthenticatedPedidosNovoRoute: AuthenticatedPedidosNovoRoute,
   AuthenticatedPedidosIdEditarRoute: AuthenticatedPedidosIdEditarRoute,
