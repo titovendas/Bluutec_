@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.15"
+    PostgrestVersion: "14.18"
   }
   public: {
     Tables: {
@@ -94,77 +94,8 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "price_table_imports"
             referencedColumns: ["id"]
-          }
+          },
         ]
-      }
-      price_table_imports: {
-        Row: {
-          file_name: string
-          id: string
-          imported_at: string
-          products_count: number
-        }
-        Insert: {
-          file_name: string
-          id?: string
-          imported_at?: string
-          products_count?: number
-        }
-        Update: {
-          file_name?: string
-          id?: string
-          imported_at?: string
-          products_count?: number
-        }
-        Relationships: []
-      }
-      product_images: {
-        Row: {
-          code: string
-          image_url: string
-          updated_at: string
-        }
-        Insert: {
-          code: string
-          image_url: string
-          updated_at?: string
-        }
-        Update: {
-          code?: string
-          image_url?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      product_tax_rates: {
-        Row: {
-          code: string
-          created_at: string
-          id: string
-          ipi_percent: number
-          st_percent: number
-          uf: string
-          updated_at: string
-        }
-        Insert: {
-          code: string
-          created_at?: string
-          id?: string
-          ipi_percent?: number
-          st_percent?: number
-          uf: string
-          updated_at?: string
-        }
-        Update: {
-          code?: string
-          created_at?: string
-          id?: string
-          ipi_percent?: number
-          st_percent?: number
-          uf?: string
-          updated_at?: string
-        }
-        Relationships: []
       }
       customers: {
         Row: {
@@ -408,6 +339,75 @@ export type Database = {
         }
         Relationships: []
       }
+      price_table_imports: {
+        Row: {
+          file_name: string
+          id: string
+          imported_at: string
+          products_count: number
+        }
+        Insert: {
+          file_name: string
+          id?: string
+          imported_at?: string
+          products_count?: number
+        }
+        Update: {
+          file_name?: string
+          id?: string
+          imported_at?: string
+          products_count?: number
+        }
+        Relationships: []
+      }
+      product_images: {
+        Row: {
+          code: string
+          image_url: string
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          image_url: string
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          image_url?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      product_tax_rates: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          ipi_percent: number
+          st_percent: number
+          uf: string
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          ipi_percent?: number
+          st_percent?: number
+          uf: string
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          ipi_percent?: number
+          st_percent?: number
+          uf?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       products: {
         Row: {
           active: boolean
@@ -488,15 +488,22 @@ export type Database = {
       order_summary: {
         Row: {
           calculated_total: number | null
+          cash_discount_percent: number | null
           created_at: string | null
           customer_id: string | null
           customer_name: string | null
           id: string | null
+          ipi_total: number | null
           notes: string | null
           order_number: number | null
+          payment_term: string | null
+          pickup_discount_percent: number | null
+          price_table: string | null
           seller_id: string | null
           seller_name: string | null
+          st_total: number | null
           status: string | null
+          subtotal: number | null
           total: number | null
           updated_at: string | null
           user_id: string | null
@@ -539,12 +546,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -568,11 +575,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -593,11 +600,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -618,11 +625,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -635,11 +642,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
