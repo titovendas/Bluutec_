@@ -118,43 +118,53 @@ export type Database = {
         }
         Relationships: []
       }
+      product_images: {
+        Row: {
+          code: string
+          image_url: string
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          image_url: string
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          image_url?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       product_tax_rates: {
         Row: {
+          code: string
           created_at: string
           id: string
           ipi_percent: number
-          product_id: string
           st_percent: number
           uf: string
           updated_at: string
         }
         Insert: {
+          code: string
           created_at?: string
           id?: string
           ipi_percent?: number
-          product_id: string
           st_percent?: number
           uf: string
           updated_at?: string
         }
         Update: {
+          code?: string
           created_at?: string
           id?: string
           ipi_percent?: number
-          product_id?: string
           st_percent?: number
           uf?: string
           updated_at?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "product_st_rates_product_id_fkey"
-            columns: ["product_id"]
-            isOneToOne: false
-            referencedRelation: "catalog_products"
-            referencedColumns: ["id"]
-          }
-        ]
+        Relationships: []
       }
       customers: {
         Row: {
@@ -303,6 +313,8 @@ export type Database = {
           customer_id: string | null
           id: string
           ipi_total: number
+          notes: string | null
+          order_number: number
           payment_term: string | null
           pickup_discount_percent: number
           price_table: string
@@ -320,6 +332,8 @@ export type Database = {
           customer_id?: string | null
           id?: string
           ipi_total?: number
+          notes?: string | null
+          order_number?: number
           payment_term?: string | null
           pickup_discount_percent?: number
           price_table?: string
@@ -337,6 +351,8 @@ export type Database = {
           customer_id?: string | null
           id?: string
           ipi_total?: number
+          notes?: string | null
+          order_number?: number
           payment_term?: string | null
           pickup_discount_percent?: number
           price_table?: string
@@ -476,6 +492,8 @@ export type Database = {
           customer_id: string | null
           customer_name: string | null
           id: string | null
+          notes: string | null
+          order_number: number | null
           seller_id: string | null
           seller_name: string | null
           status: string | null
