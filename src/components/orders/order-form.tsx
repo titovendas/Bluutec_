@@ -53,6 +53,11 @@ function parseDecimalInput(text: string) {
   return Number.isNaN(value) ? 0 : value;
 }
 
+/** 21.3499999 -> "21,35" (sem casas sobrando). */
+function fmtPct(n: number) {
+  return Number(n ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+}
+
 /** A Bluutec só vende em embalagem fechada — arredonda pra cima pro
  * múltiplo mais próximo da embalagem do produto (nunca abaixo de uma
  * embalagem). Produto sem embalagem cadastrada não tem restrição. */
@@ -202,6 +207,10 @@ export function OrderForm({
       pickupDiscountPercent
     );
 
+  // Nenhum produto da tabela atual tem IPI — a coluna só aparece se algum
+  // item do pedido tiver IPI, pra o total nunca esconder imposto.
+  const showIpi = items.some((i) => i.ipi_percent > 0);
+
   const totals = useMemo(() => {
     const subtotal = items.reduce(
       (s, i) => s + i.quantity * netUnitPrice(i),
@@ -322,6 +331,7 @@ export function OrderForm({
             onValueChange={setPaymentTerm}
             placeholder="Selecione"
             searchPlaceholder="Buscar prazo..."
+            matchFrom="start"
             emptyText="Nenhum prazo cadastrado. Cadastre em Configurações."
           />
         </div>
@@ -366,26 +376,27 @@ export function OrderForm({
         </div>
 
         <div className="hidden overflow-x-auto sm:block">
-          <Table className="table-fixed">
+          <Table className="w-full table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-16">Foto</TableHead>
-                <TableHead className="w-24">Código</TableHead>
-                <TableHead className="w-auto min-w-[160px]">Descrição</TableHead>
-                <TableHead className="w-20">Qtd</TableHead>
-                <TableHead className="w-24">Tabela</TableHead>
-                <TableHead className="w-24">Desc. item (%)</TableHead>
-                <TableHead className="w-28 text-right">Unit. líquido</TableHead>
-                <TableHead className="w-28 text-right">IPI</TableHead>
-                <TableHead className="w-28 text-right">ST</TableHead>
-                <TableHead className="w-32 text-right">Total</TableHead>
-                <TableHead className="w-12"></TableHead>
+                <TableHead className="w-12 px-2">Foto</TableHead>
+                <TableHead className="w-[84px] px-2">Código</TableHead>
+                <TableHead className="px-2">Descrição</TableHead>
+                <TableHead className="w-[76px] px-2">Qtd</TableHead>
+                <TableHead className="w-[64px] px-2 text-xs">Tabela</TableHead>
+                <TableHead className="w-[72px] px-2">Desc. (%)</TableHead>
+                <TableHead className="w-[80px] px-2 text-right">Unit. líq.</TableHead>
+                {showIpi && <TableHead className="w-[84px] px-2 text-right">IPI</TableHead>}
+                <TableHead className="w-[72px] px-2 text-right">ST</TableHead>
+                <TableHead className="w-[88px] px-2 text-right">Unit. c/ imp.</TableHead>
+                <TableHead className="w-[96px] px-2 text-right">Total</TableHead>
+                <TableHead className="w-9 px-1"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={showIpi ? 12 : 11} className="h-24 text-center text-muted-foreground">
                     Nenhum produto adicionado.
                   </TableCell>
                 </TableRow>
@@ -395,20 +406,21 @@ export function OrderForm({
                   const base = item.quantity * unit;
                   const ipi = (base * item.ipi_percent) / 100;
                   const st = (base * item.st_percent) / 100;
+                  const unitWithTaxes = unit * (1 + (item.ipi_percent + item.st_percent) / 100);
                   return (
                     <TableRow key={item.catalog_product_id}>
-                      <TableCell>
+                      <TableCell className="px-2">
                         <ProductImage
                           src={item.image_url}
                           alt={item.description}
-                          className="h-10 w-10"
+                          className="h-9 w-9"
                         />
                       </TableCell>
-                      <TableCell className="font-mono text-xs">{item.code}</TableCell>
-                      <TableCell className="max-w-[280px] truncate text-sm">
+                      <TableCell className="px-2 font-mono text-xs">{item.code}</TableCell>
+                      <TableCell className="px-2 text-sm leading-snug">
                         {item.description}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="px-2">
                         <Input
                           type="number"
                           min={item.package_qty || 1}
@@ -433,7 +445,7 @@ export function OrderForm({
                               )
                             )
                           }
-                          className="[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                          className="h-8 px-2 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                         />
                         {!!item.package_qty && item.package_qty > 1 && (
                           <p className="mt-0.5 text-[10px] text-muted-foreground">
@@ -441,10 +453,10 @@ export function OrderForm({
                           </p>
                         )}
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
+                      <TableCell className="px-2 text-xs text-muted-foreground">
                         {formatCurrency(item.table_price)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="px-2">
                         <Input
                           type="text"
                           inputMode="decimal"
@@ -464,31 +476,38 @@ export function OrderForm({
                               )
                             )
                           }
+                          className="h-8 px-2"
                         />
                       </TableCell>
-                      <TableCell className="text-right text-sm font-semibold">
+                      <TableCell className="px-2 text-right text-sm font-semibold">
                         {formatCurrency(unit)}
                       </TableCell>
-                      <TableCell className="text-right text-sm">
-                        {formatCurrency(ipi)}
-                        <span className="block text-xs text-muted-foreground">
-                          {item.ipi_percent}%
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right text-sm">
+                      {showIpi && (
+                        <TableCell className="px-2 text-right text-sm">
+                          {formatCurrency(ipi)}
+                          <span className="block text-[10px] text-muted-foreground">
+                            {fmtPct(item.ipi_percent)}%
+                          </span>
+                        </TableCell>
+                      )}
+                      <TableCell className="px-2 text-right text-xs">
                         {formatCurrency(st)}
-                        <span className="block text-xs text-muted-foreground">
-                          {item.st_percent}%
+                        <span className="block text-[10px] text-muted-foreground">
+                          {fmtPct(item.st_percent)}%
                         </span>
                       </TableCell>
-                      <TableCell className="text-right font-medium">
+                      <TableCell className="px-2 text-right text-sm font-medium">
+                        {formatCurrency(unitWithTaxes)}
+                      </TableCell>
+                      <TableCell className="px-2 text-right text-sm font-medium">
                         {formatCurrency(base + ipi + st)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="px-1">
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
+                          className="h-8 w-8"
                           onClick={() => setRemoveIndex(index)}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
@@ -615,20 +634,28 @@ export function OrderForm({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 border-t pt-2 text-sm">
+                  <div className="grid grid-cols-3 gap-2 border-t pt-2 text-sm">
+                    {showIpi && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">
+                          IPI ({fmtPct(item.ipi_percent)}%)
+                        </p>
+                        <p>{formatCurrency(ipi)}</p>
+                      </div>
+                    )}
                     <div>
                       <p className="text-xs text-muted-foreground">
-                        IPI ({item.ipi_percent}%)
-                      </p>
-                      <p>{formatCurrency(ipi)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">
-                        ST ({item.st_percent}%)
+                        ST ({fmtPct(item.st_percent)}%)
                       </p>
                       <p>{formatCurrency(st)}</p>
                     </div>
-                    <div className="col-span-2 text-right">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Unit. c/ imp.</p>
+                      <p className="font-medium">
+                        {formatCurrency(unit * (1 + (item.ipi_percent + item.st_percent) / 100))}
+                      </p>
+                    </div>
+                    <div className="text-right">
                       <p className="text-xs text-muted-foreground">Total</p>
                       <p className="font-medium">
                         {formatCurrency(base + ipi + st)}
@@ -647,10 +674,12 @@ export function OrderForm({
               <span className="text-muted-foreground">Subtotal</span>
               <span>{formatCurrency(totals.subtotal)}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">IPI</span>
-              <span>{formatCurrency(totals.ipi)}</span>
-            </div>
+            {showIpi && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">IPI</span>
+                <span>{formatCurrency(totals.ipi)}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-muted-foreground">ST (valor aprox.)</span>
               <span>{formatCurrency(totals.st)}</span>
