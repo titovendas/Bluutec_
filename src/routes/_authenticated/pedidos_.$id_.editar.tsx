@@ -18,7 +18,7 @@ export const Route = createFileRoute("/_authenticated/pedidos_/$id_/editar")({
   component: EditOrderPage,
   head: ({ params }) => ({
     meta: [
-      { title: `Editar Orçamento #${params.id.slice(0, 8)} | Força de Vendas` },
+      { title: "Editar Orçamento | Força de Vendas" },
       { name: "description", content: "Edite o orçamento Bluutec." },
       { property: "og:title", content: "Editar Orçamento | Força de Vendas" },
       { property: "og:description", content: "Edite o orçamento Bluutec." },
@@ -51,6 +51,7 @@ function EditOrderPage() {
   const [paymentTerm, setPaymentTerm] = useState("");
   const [cashDiscountPercent, setCashDiscountPercent] = useState(0);
   const [pickupDiscountPercent, setPickupDiscountPercent] = useState(0);
+  const [notes, setNotes] = useState("");
   const [items, setItems] = useState<FormItem[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -63,6 +64,7 @@ function EditOrderPage() {
     setPaymentTerm(order.payment_term || "");
     setCashDiscountPercent(Number(order.cash_discount_percent ?? 0));
     setPickupDiscountPercent(Number(order.pickup_discount_percent ?? 0));
+    setNotes(order.notes ?? "");
 
     const rawItems = orderData.items;
     setItems(
@@ -129,6 +131,7 @@ function EditOrderPage() {
       payment_term: paymentTerm,
       cash_discount_percent: cashDiscountPercent,
       pickup_discount_percent: pickupDiscountPercent,
+      notes,
       items: items.map((item) => ({
         ...item,
         unit_price: computeNetUnitPrice(
@@ -154,8 +157,9 @@ function EditOrderPage() {
           toast.success("Orçamento atualizado com sucesso");
         } catch (err: any) {
           await saveLocally();
-          toast.success(
-            "Sem conexão com o servidor — edição salva no aparelho e será enviada automaticamente."
+          toast.error(
+            `O servidor não aceitou a edição (${err?.message || "erro desconhecido"}). Ela foi guardada no aparelho e será reenviada na sincronização.`,
+            { duration: 10000 }
           );
         }
       } else {
@@ -225,6 +229,8 @@ function EditOrderPage() {
           setCashDiscountPercent={setCashDiscountPercent}
           pickupDiscountPercent={pickupDiscountPercent}
           setPickupDiscountPercent={setPickupDiscountPercent}
+          notes={notes}
+          setNotes={setNotes}
           items={items}
           setItems={setItems}
         />

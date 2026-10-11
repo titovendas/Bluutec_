@@ -2,15 +2,13 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   Users,
-  Package,
   ShoppingCart,
-  UserCircle,
   TrendingUp,
   ArrowRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { OrderStatusBadge } from "@/components/orders/status-badge";
 import {
   Table,
   TableBody,
@@ -20,7 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getDashboardStats } from "@/lib/sales.functions";
-import { formatCurrency, formatDate, statusLabel, statusVariant } from "@/lib/sales-formatters";
+import { formatCurrency, formatDate, orderNumberLabel } from "@/lib/sales-formatters";
 
 export const Route = createFileRoute("/_authenticated/")({
   component: DashboardPage,
@@ -57,18 +55,6 @@ function DashboardPage() {
       href: "/clientes",
     },
     {
-      title: "Produtos",
-      value: data.productsCount,
-      icon: Package,
-      href: "/produtos",
-    },
-    {
-      title: "Vendedores",
-      value: data.sellersCount,
-      icon: UserCircle,
-      href: "/vendedores",
-    },
-    {
       title: "Pedidos",
       value: data.ordersCount,
       icon: ShoppingCart,
@@ -85,7 +71,7 @@ function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2">
         {stats.map((stat) => (
           <Card key={stat.title}>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -135,6 +121,7 @@ function DashboardPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Nº</TableHead>
                   <TableHead>Cliente</TableHead>
                   <TableHead>Vendedor</TableHead>
                   <TableHead>Status</TableHead>
@@ -145,14 +132,15 @@ function DashboardPage() {
               <TableBody>
                 {data.recentOrders.map((order: any) => (
                   <TableRow key={order.id}>
+                    <TableCell className="whitespace-nowrap font-medium">
+                      {orderNumberLabel(order)}
+                    </TableCell>
                     <TableCell className="font-medium">
                       {order.customer_name || "—"}
                     </TableCell>
                     <TableCell>{order.seller_name || "—"}</TableCell>
                     <TableCell>
-                      <Badge variant={statusVariant(order.status)}>
-                        {statusLabel(order.status)}
-                      </Badge>
+                      <OrderStatusBadge status={order.status} />
                     </TableCell>
                     <TableCell className="text-right">
                       {formatCurrency(order.calculated_total)}

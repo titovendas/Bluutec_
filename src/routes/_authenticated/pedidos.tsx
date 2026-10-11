@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Plus, Pencil, Trash2, Search, Eye } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -19,10 +19,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+import { OrderStatusBadge, orderRowClass } from "@/components/orders/status-badge";
 import { deleteOrder } from "@/lib/sales.functions";
 import { listOrdersMerged, queueOrderDelete } from "@/lib/offline-queue";
-import { formatCurrency, formatDate, statusLabel, statusVariant } from "@/lib/sales-formatters";
+import { formatCurrency, formatDate, orderNumberLabel } from "@/lib/sales-formatters";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/pedidos")({
@@ -46,12 +46,16 @@ function OrdersPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const term = search.trim().toLowerCase();
+  const numberTerm = term.replace(/^#0*/, "");
   const filtered = orders.filter(
     (o: any) =>
-      o.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
-      o.seller_name?.toLowerCase().includes(search.toLowerCase()) ||
-      o.id?.toLowerCase().includes(search.toLowerCase())
+      !term ||
+      o.customer_name?.toLowerCase().includes(term) ||
+      o.seller_name?.toLowerCase().includes(term) ||
+      (numberTerm !== "" && String(o.order_number ?? "").includes(numberTerm))
   );
+
 
   const handleDelete = async () => {
     if (!deleteId) return;
@@ -97,7 +101,7 @@ function OrdersPage() {
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          placeholder="Buscar pedidos..."
+          placeholder="Buscar por cliente, vendedor ou nº do pedido..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9"
@@ -113,7 +117,7 @@ function OrdersPage() {
               <TableHead>Data</TableHead>
               <TableHead className="text-right">Total</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="w-28 text-right">Ações</TableHead>
+              <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -136,47 +140,53 @@ function OrdersPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((order: any) => (
-                <TableRow key={order.id!}>
-                  <TableCell className="font-medium">
-                    #{order.id!.slice(0, 8)}
-                    {order.__pending && (
-                      <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-normal text-amber-700">
-                        aguardando sincronização
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell>{order.customer_name || "—"}</TableCell>
-                  <TableCell>{formatDate(order.created_at)}</TableCell>
-                  <TableCell className="text-right">
-                    {formatCurrency(order.total)}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={statusVariant(order.status!)}>
-                      {statusLabel(order.status!)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" asChild>
-                      <Link to="/pedidos/$id" params={{ id: order.id! }}>
-                        <Eye className="h-4 w-4" />
-                      </Link>
-                    </Button>
-                    <Button variant="ghost" size="icon" asChild>
-                      <Link to="/pedidos/$id/editar" params={{ id: order.id! }}>
-                        <Pencil className="h-4 w-4" />
-                      </Link>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setDeleteId(order.id!)}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
+              filtered.map((order: any) => {
+                const isConfirmed = order.status === "pedido";
+                return (
+                  <TableRow key={order.id!} className={orderRowClass(order.status)}>
+                    <TableCell className="whitespace-nowrap font-medium">
+                      {orderNumberLabel(order)}
+                      {order.__pending && (
+                        <span className="mt-1 block w-fit rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-normal text-amber-700">
+                          aguardando sincronização
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="min-w-[140px]">{order.customer_name || "—"}</TableCell>
+                    <TableCell className="whitespace-nowrap">{formatDate(order.created_at)}</TableCell>
+                    <TableCell className="whitespace-nowrap text-right">
+                      {formatCurrency(order.total)}
+                    </TableCell>
+                    <TableCell>
+                      <OrderStatusBadge status={order.status} />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <Button variant="outline" size="sm" asChild>
+                          <Link to="/pedidos/$id" params={{ id: order.id! }}>
+                            Ver
+                          </Link>
+                        </Button>
+                        {!isConfirmed && (
+                          <Button variant="outline" size="sm" asChild>
+                            <Link to="/pedidos/$id/editar" params={{ id: order.id! }}>
+                              Editar
+                            </Link>
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => setDeleteId(order.id!)}
+                        >
+                          Excluir
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>

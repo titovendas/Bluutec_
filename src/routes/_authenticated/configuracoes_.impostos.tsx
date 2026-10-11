@@ -242,7 +242,7 @@ function TaxRatesSettingsPage() {
       toast.success(
         `${result.imported} imposto(s) importado(s) para ${result.uf}.${
           result.notFound.length > 0
-            ? ` ${result.notFound.length} código(s) não encontrado(s) no catálogo.`
+            ? ` ${result.notFound.length} código(s) ainda não estão na tabela de preços (ficam guardados e passam a valer quando o produto for cadastrado).`
             : ""
         }`
       );

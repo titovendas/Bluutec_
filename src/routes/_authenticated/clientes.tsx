@@ -320,14 +320,17 @@ function CustomersPage() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
+        {/* Altura limitada à tela: os campos rolam e o botão Salvar fica
+            sempre visível embaixo (notebook, tablet e celular). */}
+        <DialogContent className="flex max-h-[92vh] flex-col gap-0 p-0 sm:max-w-lg">
+          <DialogHeader className="px-6 pb-2 pt-6">
             <DialogTitle>
               {form.id ? "Editar cliente" : "Novo cliente"}
             </DialogTitle>
           </DialogHeader>
 
-          <form onSubmit={handleSubmit} className="grid gap-4 py-2">
+          <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+            <div className="grid gap-3 overflow-y-auto px-6 py-2">
             <div className="grid gap-2">
               <Label htmlFor="cnpj">CNPJ (opcional)</Label>
               <div className="flex gap-2">
@@ -467,8 +470,9 @@ function CustomersPage() {
                 />
               </div>
             </div>
-            <DialogFooter>
-              <Button type="submit" disabled={loading}>
+            </div>
+            <DialogFooter className="border-t bg-background px-6 py-3">
+              <Button type="submit" disabled={loading} className="w-full sm:w-auto">
                 {loading ? "Salvando..." : "Salvar"}
               </Button>
             </DialogFooter>

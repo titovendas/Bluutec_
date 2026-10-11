@@ -56,6 +56,7 @@ function NewOrderPage() {
   const [pickupDiscountPercent, setPickupDiscountPercent] = useState(
     initialDraft?.pickupDiscountPercent ?? 0
   );
+  const [notes, setNotes] = useState(initialDraft?.notes ?? "");
   const [items, setItems] = useState<FormItem[]>(initialDraft?.items ?? []);
   const [loading, setLoading] = useState(false);
 
@@ -75,6 +76,7 @@ function NewOrderPage() {
       paymentTerm,
       cashDiscountPercent,
       pickupDiscountPercent,
+      notes,
       items,
     });
   }, [
@@ -83,6 +85,7 @@ function NewOrderPage() {
     paymentTerm,
     cashDiscountPercent,
     pickupDiscountPercent,
+    notes,
     items,
   ]);
 
@@ -93,6 +96,7 @@ function NewOrderPage() {
     setPaymentTerm("");
     setCashDiscountPercent(0);
     setPickupDiscountPercent(0);
+    setNotes("");
     setItems([]);
     toast.success("Rascunho descartado");
   };
@@ -115,6 +119,7 @@ function NewOrderPage() {
       payment_term: paymentTerm,
       cash_discount_percent: cashDiscountPercent,
       pickup_discount_percent: pickupDiscountPercent,
+      notes,
       items: items.map((item) => ({
         ...item,
         unit_price: computeNetUnitPrice(
@@ -127,6 +132,7 @@ function NewOrderPage() {
       })),
     };
     const isOnline = typeof navigator === "undefined" || navigator.onLine;
+    let serverError = "";
 
     try {
       if (isOnline) {
@@ -140,7 +146,9 @@ function NewOrderPage() {
           return;
         } catch (err: any) {
           // Sem conexão com o servidor mesmo online (ex: instabilidade) —
-          // guarda localmente e segue.
+          // guarda localmente e segue. A mensagem real é guardada para ser
+          // mostrada (um erro do servidor não pode passar despercebido).
+          serverError = err?.message || "erro desconhecido";
         }
       }
 
@@ -148,11 +156,18 @@ function NewOrderPage() {
         customers.find((c: any) => c.id === customerId) ?? null;
       const record = await queueOrder(orderPayload, customerSnapshot);
       clearOrderDraft();
-      toast.success(
-        isOnline
-          ? "Sem conexão com o servidor — pedido salvo no aparelho e será enviado automaticamente."
-          : "Você está offline — pedido salvo no aparelho e será enviado quando a internet voltar."
-      );
+      if (isOnline && serverError) {
+        toast.error(
+          `O servidor não aceitou o pedido (${serverError}). Ele foi guardado no aparelho e será reenviado na sincronização.`,
+          { duration: 10000 }
+        );
+      } else {
+        toast.success(
+          isOnline
+            ? "Sem conexão com o servidor — pedido salvo no aparelho e será enviado automaticamente."
+            : "Você está offline — pedido salvo no aparelho e será enviado quando a internet voltar."
+        );
+      }
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       navigate({ to: "/pedidos/$id", params: { id: record.localId } });
     } catch (err: any) {
@@ -197,6 +212,8 @@ function NewOrderPage() {
           setCashDiscountPercent={setCashDiscountPercent}
           pickupDiscountPercent={pickupDiscountPercent}
           setPickupDiscountPercent={setPickupDiscountPercent}
+          notes={notes}
+          setNotes={setNotes}
           items={items}
           setItems={setItems}
         />

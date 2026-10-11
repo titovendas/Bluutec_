@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ArrowLeft, Package, User, FileDown, Tag, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { OrderStatusBadge } from "@/components/orders/status-badge";
 import {
   Dialog,
   DialogContent,
@@ -26,8 +26,7 @@ import { getOrderForDisplay, queueOrderUpsert } from "@/lib/offline-queue";
 import {
   formatCurrency,
   formatDate,
-  statusLabel,
-  statusVariant,
+  orderNumberLabel,
 } from "@/lib/sales-formatters";
 import { priceTableLabel } from "@/lib/price-tables";
 import { generateOrderPdf } from "@/lib/order-pdf";
@@ -37,7 +36,7 @@ export const Route = createFileRoute("/_authenticated/pedidos_/$id")({
   component: OrderDetailPage,
   head: ({ params }) => ({
     meta: [
-      { title: `Pedido #${params.id.slice(0, 8)} | Força de Vendas` },
+      { title: "Pedido | Força de Vendas" },
       { name: "description", content: "Detalhes do pedido." },
     ],
   }),
@@ -85,6 +84,7 @@ function OrderDetailPage() {
           payment_term: (order as any).payment_term,
           cash_discount_percent: Number((order as any).cash_discount_percent ?? 0),
           pickup_discount_percent: Number((order as any).pickup_discount_percent ?? 0),
+          notes: (order as any).notes ?? "",
           items: items.map((item: any) => ({
             catalog_product_id: item.catalog_product_id,
             code: item.code,
@@ -118,6 +118,15 @@ function OrderDetailPage() {
 
   return (
     <div className="space-y-6">
+      {isConfirmed && (
+        <div className="flex items-center gap-3 rounded-md border border-emerald-300 bg-emerald-50 px-4 py-3 text-emerald-800">
+          <CheckCircle2 className="h-5 w-5 shrink-0" />
+          <p className="text-sm">
+            <strong>Pedido confirmado.</strong> Ele já foi enviado para
+            faturamento e não pode mais ser alterado.
+          </p>
+        </div>
+      )}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <Button variant="outline" size="icon" asChild>
@@ -127,7 +136,10 @@ function OrderDetailPage() {
           </Button>
           <div>
             <h1 className="text-3xl font-bold tracking-tight">
-              {isConfirmed ? "Pedido" : "Orçamento"} #{id.slice(0, 8)}
+              {isConfirmed ? "Pedido" : "Orçamento"}{" "}
+              {orderNumberLabel(order as any) === "—"
+                ? "(sem número ainda)"
+                : orderNumberLabel(order as any)}
               {(order as any).__pending && (
                 <span className="ml-3 align-middle rounded bg-amber-100 px-2 py-1 text-xs font-normal text-amber-700">
                   aguardando sincronização
@@ -185,9 +197,7 @@ function OrderDetailPage() {
             <CardTitle className="text-sm font-medium">Status</CardTitle>
           </CardHeader>
           <CardContent>
-            <Badge variant={statusVariant(order.status!)} className="text-base">
-              {statusLabel(order.status!)}
-            </Badge>
+            <OrderStatusBadge status={order.status} />
           </CardContent>
         </Card>
         <Card>
@@ -202,6 +212,17 @@ function OrderDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {(order as any).notes && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Observações</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="whitespace-pre-wrap text-sm">{(order as any).notes}</p>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

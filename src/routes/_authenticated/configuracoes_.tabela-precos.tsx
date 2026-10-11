@@ -61,6 +61,7 @@ import {
   listPriceTableImports,
   deletePriceTableImport,
   listCatalogProductCodes,
+  listProductImages,
   updateCatalogProduct,
   deleteCatalogProduct,
   uploadProductImage,
@@ -590,6 +591,7 @@ function PriceTableSettingsPage() {
       return [];
     });
     queryClient.invalidateQueries({ queryKey: ["catalog-product-codes"] });
+    queryClient.invalidateQueries({ queryKey: ["product-images"] });
     queryClient.invalidateQueries({ queryKey: ["catalog"] });
 
     if (notFound.length === 0 && failed.length === 0) {
@@ -618,12 +620,21 @@ function PriceTableSettingsPage() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkDeleteProgress, setBulkDeleteProgress] = useState({ done: 0, total: 0 });
 
+  // As imagens ficam numa tabela própria, ligada ao produto só pelo
+  // código — por isso aparecem aqui mesmo que o produto não exista mais
+  // (ou ainda não tenha sido importado).
+  const { data: imageList = [] } = useQuery({
+    queryKey: ["product-images"],
+    queryFn: () => listProductImages(),
+  });
   const productsWithImages = useMemo(
     () =>
-      (catalogProducts as any[])
-        .filter((p) => !!p.image_url)
-        .sort((a, b) => a.code.localeCompare(b.code)),
-    [catalogProducts]
+      (imageList as any[]).map((i) => ({
+        ...i,
+        id: i.code as string,
+        description: (i.description as string | null) ?? "(sem produto com esse código no catálogo)",
+      })),
+    [imageList]
   );
 
   const handleSaveCode = async (product: any) => {
@@ -641,6 +652,7 @@ function PriceTableSettingsPage() {
         return next;
       });
       queryClient.invalidateQueries({ queryKey: ["catalog-product-codes"] });
+      queryClient.invalidateQueries({ queryKey: ["product-images"] });
       queryClient.invalidateQueries({ queryKey: ["catalog"] });
     } catch (err: any) {
       toast.error(err.message || "Erro ao mover a imagem.");
@@ -657,6 +669,7 @@ function PriceTableSettingsPage() {
       toast.success("Imagem removida.");
       setDeleteImageTarget(null);
       queryClient.invalidateQueries({ queryKey: ["catalog-product-codes"] });
+      queryClient.invalidateQueries({ queryKey: ["product-images"] });
       queryClient.invalidateQueries({ queryKey: ["catalog"] });
     } catch (err: any) {
       toast.error(err.message || "Erro ao remover a imagem.");
@@ -702,6 +715,7 @@ function PriceTableSettingsPage() {
     setBulkDeleteOpen(false);
     setSelectedImageIds(new Set());
     queryClient.invalidateQueries({ queryKey: ["catalog-product-codes"] });
+    queryClient.invalidateQueries({ queryKey: ["product-images"] });
     queryClient.invalidateQueries({ queryKey: ["catalog"] });
     if (removed === targets.length) {
       toast.success(`${removed} imagem(ns) removida(s).`);
@@ -1097,7 +1111,7 @@ function PriceTableSettingsPage() {
                 <p>{uploadSummary.sent} imagem(ns) vinculada(s) com sucesso.</p>
                 {uploadSummary.notFound.length > 0 && (
                   <p className="text-amber-700">
-                    Sem produto correspondente: {uploadSummary.notFound.join(", ")}
+                    Imagem guardada, mas ainda sem produto com esse código: {uploadSummary.notFound.join(", ")}
                   </p>
                 )}
               </div>
@@ -1434,7 +1448,7 @@ function PriceTableSettingsPage() {
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             {deleteImportTarget &&
-              `Excluir a importação de "${deleteImportTarget.file_name}"? Isso remove do catálogo os produtos que vieram dessa importação e que não foram atualizados depois (produtos mais recentes não são afetados). Produtos já usados em algum pedido não podem ser excluídos.`}
+              `Excluir a importação de "${deleteImportTarget.file_name}"? Isso remove do catálogo os produtos que vieram dessa importação e que não foram atualizados depois (produtos mais recentes não são afetados). Produtos já usados em algum pedido não podem ser excluídos. As imagens e os impostos não são afetados.`}
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteImportTarget(null)}>
