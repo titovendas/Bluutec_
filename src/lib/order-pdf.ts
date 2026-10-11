@@ -11,8 +11,6 @@ const COMPANY = {
   legalName: "BLUUTEC PLÁSTICOS LTDA",
   cnpj: "58.380.453/0001-70",
   address: "R. Pedro de Alcântara Meira, 445 - Fazenda Velha, Araucária - PR, 83708-132",
-  phone: "(41) 3073-9338",
-  email: "comercial@bluutec.com.br",
   site: "www.bluutec.com.br",
 };
 
