@@ -11,9 +11,8 @@ const COMPANY = {
   legalName: "BLUUTEC PLÁSTICOS LTDA",
   cnpj: "58.380.453/0001-70",
   address: "R. Pedro de Alcântara Meira, 445 - Fazenda Velha, Araucária - PR, 83708-132",
-  // Preencha quando houver telefone e e-mail oficiais para contato.
-  phone: "",
-  email: "",
+  phone: "(41) 3073-9338",
+  email: "comercial@bluutec.com.br",
   site: "www.bluutec.com.br",
 };
 
@@ -187,6 +186,23 @@ export async function generateOrderPdf(order: any, items: any[]) {
 
   const tableStartY = 106 + infoRows * leading + 8;
 
+  // Nenhum produto da tabela atual tem IPI: a coluna (e a linha do total)
+  // só aparece se algum item do pedido tiver IPI, pra nunca esconder imposto.
+  const showIpi = items.some((i: any) => Number(i.ipi_percent) > 0);
+
+  const colStyles: Record<number, any> = {
+    0: { cellWidth: 38, minCellHeight: 38, halign: "center" },
+    1: { cellWidth: 50, halign: "left" },
+    2: { halign: "left" },
+    3: { cellWidth: 32, halign: "right" },
+    4: { cellWidth: 65, halign: "right" },
+  };
+  let col = 5;
+  if (showIpi) colStyles[col++] = { cellWidth: 70, halign: "right" };
+  colStyles[col++] = { cellWidth: 70, halign: "right" }; // ST
+  colStyles[col++] = { cellWidth: 75, halign: "right", fontStyle: "bold", textColor: BRAND_COLOR };
+  colStyles[col++] = { cellWidth: 68, halign: "right" }; // Total
+
   autoTable(doc, {
     startY: tableStartY,
     head: [
@@ -196,13 +212,13 @@ export async function generateOrderPdf(order: any, items: any[]) {
         "Descrição",
         "Qtd",
         "Unitário",
-        "IPI",
+        ...(showIpi ? ["IPI"] : []),
         "ST",
         "Unit. c/ impostos",
         "Total",
       ],
     ],
-    body: items.map((item) => {
+    body: items.map((item: any) => {
       const unitWithTaxes =
         Number(item.unit_price) *
         (1 + (Number(item.ipi_percent) + Number(item.st_percent)) / 100);
@@ -212,7 +228,9 @@ export async function generateOrderPdf(order: any, items: any[]) {
         item.description ?? "—",
         String(item.quantity),
         formatCurrency(item.unit_price),
-        `${formatCurrency(item.ipi_value)}\n(${fmtPct(item.ipi_percent)}%)`,
+        ...(showIpi
+          ? [`${formatCurrency(item.ipi_value)}\n(${fmtPct(item.ipi_percent)}%)`]
+          : []),
         `${formatCurrency(item.st_value)}\n(${fmtPct(item.st_percent)}%)`,
         formatCurrency(unitWithTaxes),
         formatCurrency(item.total),
@@ -220,17 +238,7 @@ export async function generateOrderPdf(order: any, items: any[]) {
     }),
     styles: { fontSize: 8, cellPadding: 5, valign: "middle" },
     headStyles: { fillColor: BRAND_COLOR, textColor: 255, halign: "center" },
-    columnStyles: {
-      0: { cellWidth: 38, minCellHeight: 38, halign: "center" },
-      1: { cellWidth: 50, halign: "left" },
-      2: { halign: "left" },
-      3: { cellWidth: 32, halign: "right" },
-      4: { cellWidth: 65, halign: "right" },
-      5: { cellWidth: 70, halign: "right" },
-      6: { cellWidth: 70, halign: "right" },
-      7: { cellWidth: 75, halign: "right", fontStyle: "bold", textColor: BRAND_COLOR },
-      8: { cellWidth: 68, halign: "right" },
-    },
+    columnStyles: colStyles,
     didDrawCell: (data: any) => {
       if (data.section === "body" && data.column.index === 0) {
         const img = images[data.row.index];
@@ -273,7 +281,7 @@ export async function generateOrderPdf(order: any, items: any[]) {
   // Totais alinhados à direita
   const totalsRows: [string, number][] = [
     ["Subtotal", Number(order.subtotal ?? 0)],
-    ["IPI", Number(order.ipi_total ?? 0)],
+    ...(showIpi ? ([["IPI", Number(order.ipi_total ?? 0)]] as [string, number][]) : []),
     ["ST (valor aprox.)", Number(order.st_total ?? 0)],
   ];
   doc.setFontSize(10);
@@ -288,14 +296,14 @@ export async function generateOrderPdf(order: any, items: any[]) {
   doc.setFontSize(13);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(...BRAND_COLOR);
-  doc.text("Total", pageWidth - 200, finalY + 55);
-  doc.text(formatCurrency(Number(order.total ?? 0)), pageWidth - 40, finalY + 55, {
+  doc.text("Total", pageWidth - 200, finalY + totalsRows.length * 15 + 10);
+  doc.text(formatCurrency(Number(order.total ?? 0)), pageWidth - 40, finalY + totalsRows.length * 15 + 10, {
     align: "right",
   });
   doc.setTextColor(40);
 
   // Vendedor e condição de pagamento, no rodapé do orçamento
-  const footerY = finalY + 90;
+  const footerY = finalY + totalsRows.length * 15 + 45;
   doc.setDrawColor(220);
   doc.line(40, footerY - 16, pageWidth - 40, footerY - 16);
   doc.setFontSize(10);
