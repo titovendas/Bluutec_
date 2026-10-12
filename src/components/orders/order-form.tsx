@@ -479,7 +479,7 @@ export function OrderForm({
                           className="h-8 px-2"
                         />
                       </TableCell>
-                      <TableCell className="px-2 text-right text-sm font-semibold">
+                      <TableCell className="px-2 text-right text-sm">
                         {formatCurrency(unit)}
                       </TableCell>
                       {showIpi && (
@@ -496,10 +496,13 @@ export function OrderForm({
                           {fmtPct(item.st_percent)}%
                         </span>
                       </TableCell>
-                      <TableCell className="px-2 text-right text-sm font-medium">
-                        {formatCurrency(unitWithTaxes)}
+                      <TableCell className="px-2 text-right">
+                        {/* Único valor em destaque da linha: negrito, azul escuro e fundo azul claro */}
+                        <span className="inline-block rounded-md bg-sky-100 px-2 py-1 text-base font-bold text-[#0a4a6e]">
+                          {formatCurrency(unitWithTaxes)}
+                        </span>
                       </TableCell>
-                      <TableCell className="px-2 text-right text-sm font-medium">
+                      <TableCell className="px-2 text-right text-sm">
                         {formatCurrency(base + ipi + st)}
                       </TableCell>
                       <TableCell className="px-1">
@@ -628,7 +631,7 @@ export function OrderForm({
                       <Label className="text-xs text-muted-foreground">
                         Unit. líquido
                       </Label>
-                      <p className="flex h-10 items-center text-sm font-semibold">
+                      <p className="flex h-10 items-center text-sm">
                         {formatCurrency(unit)}
                       </p>
                     </div>
@@ -651,15 +654,13 @@ export function OrderForm({
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Unit. c/ imp.</p>
-                      <p className="font-medium">
+                      <p className="inline-block rounded-md bg-sky-100 px-2 py-0.5 text-base font-bold text-[#0a4a6e]">
                         {formatCurrency(unit * (1 + (item.ipi_percent + item.st_percent) / 100))}
                       </p>
                     </div>
                     <div className="text-right">
                       <p className="text-xs text-muted-foreground">Total</p>
-                      <p className="font-medium">
-                        {formatCurrency(base + ipi + st)}
-                      </p>
+                      <p>{formatCurrency(base + ipi + st)}</p>
                     </div>
                   </div>
                 </div>
