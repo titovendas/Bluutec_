@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Lock, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getOrder, upsertOrder } from "@/lib/sales.functions";
@@ -11,7 +11,11 @@ import {
 } from "@/lib/offline-queue";
 import { getCatalogProductsByIdsOfflineAware } from "@/lib/offline-catalog";
 import { OrderForm, type FormItem } from "@/components/orders/order-form";
-import { computeNetUnitPrice, type PriceTable } from "@/lib/price-tables";
+import {
+  computeNetUnitPrice,
+  resolveOrderPriceTable,
+  type PriceTable,
+} from "@/lib/price-tables";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/pedidos_/$id_/editar")({
@@ -47,7 +51,8 @@ function EditOrderPage() {
   });
   const [customerId, setCustomerId] = useState("");
   const [originalStatus, setOriginalStatus] = useState("orcamento");
-  const [priceTable, setPriceTable] = useState<PriceTable>("varejo");
+  // "" = política não informada no pedido original: a pessoa precisa escolher.
+  const [priceTable, setPriceTable] = useState<PriceTable | "">("");
   const [paymentTerm, setPaymentTerm] = useState("");
   const [cashDiscountPercent, setCashDiscountPercent] = useState(0);
   const [pickupDiscountPercent, setPickupDiscountPercent] = useState(0);
@@ -55,12 +60,29 @@ function EditOrderPage() {
   const [items, setItems] = useState<FormItem[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Preenche o formulário UMA vez por pedido. Antes isso rodava a cada
+  // atualização dos dados (ao voltar para a aba, na sincronização
+  // automática...) e apagava o que a pessoa já tinha alterado — por isso
+  // as edições "não eram salvas".
+  const loadedForId = useRef<string | null>(null);
+
   useEffect(() => {
     if (!orderData) return;
+    if (loadedForId.current === id) return;
+    loadedForId.current = id;
     const order: any = orderData.order;
     setCustomerId(order.customer_id || "");
     setOriginalStatus(order.status || "orcamento");
-    setPriceTable((order.price_table as PriceTable) || "varejo");
+    // Política gravada no pedido; se estiver em branco/inválida, deduz
+    // pelos preços dos itens. Sem como deduzir, fica vazia e pede escolha.
+    setPriceTable(
+      resolveOrderPriceTable(
+        order.price_table,
+        orderData.items as any[],
+        Number(order.cash_discount_percent ?? 0),
+        Number(order.pickup_discount_percent ?? 0)
+      ) ?? ""
+    );
     setPaymentTerm(order.payment_term || "");
     setCashDiscountPercent(Number(order.cash_discount_percent ?? 0));
     setPickupDiscountPercent(Number(order.pickup_discount_percent ?? 0));
@@ -109,7 +131,7 @@ function EditOrderPage() {
         );
       });
     }
-  }, [orderData]);
+  }, [orderData, id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -119,6 +141,10 @@ function EditOrderPage() {
     }
     if (items.length === 0) {
       toast.error("Adicione pelo menos um produto ao pedido");
+      return;
+    }
+    if (!priceTable) {
+      toast.error("Escolha a política comercial antes de salvar.");
       return;
     }
     setLoading(true);
@@ -216,12 +242,20 @@ function EditOrderPage() {
         <p className="text-muted-foreground">Atualize os dados do orçamento.</p>
       </div>
 
+      {!priceTable && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          A política comercial deste orçamento não foi gravada. Escolha qual
+          foi usada (Varejo, Especialista ou Atacado) antes de salvar — os
+          preços são recalculados com a política escolhida.
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-6">
         <OrderForm
           customers={customers}
           customerId={customerId}
           setCustomerId={setCustomerId}
-          priceTable={priceTable}
+          priceTable={priceTable as PriceTable}
           setPriceTable={setPriceTable}
           paymentTerm={paymentTerm}
           setPaymentTerm={setPaymentTerm}

@@ -8,7 +8,7 @@ import { listCustomersMerged, queueOrder } from "@/lib/offline-queue";
 import { OrderForm, type FormItem } from "@/components/orders/order-form";
 import type { PriceTable } from "@/lib/price-tables";
 import { readOrderDraft, saveOrderDraft, clearOrderDraft } from "@/lib/order-draft";
-import { computeNetUnitPrice } from "@/lib/price-tables";
+import { computeNetUnitPrice, normalizePriceTable } from "@/lib/price-tables";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/pedidos_/novo")({
@@ -47,7 +47,7 @@ function NewOrderPage() {
 
   const [customerId, setCustomerId] = useState(initialDraft?.customerId ?? "");
   const [priceTable, setPriceTable] = useState<PriceTable>(
-    (initialDraft?.priceTable as PriceTable) ?? "varejo"
+    normalizePriceTable(initialDraft?.priceTable) ?? "varejo"
   );
   const [paymentTerm, setPaymentTerm] = useState(initialDraft?.paymentTerm ?? "");
   const [cashDiscountPercent, setCashDiscountPercent] = useState(
