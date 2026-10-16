@@ -312,7 +312,7 @@ export function OrderForm({
             onValueChange={(v) => setPriceTable(v as PriceTable)}
           >
             <SelectTrigger>
-              <SelectValue />
+              <SelectValue placeholder="Escolha a política" />
             </SelectTrigger>
             <SelectContent>
               {PRICE_TABLES.map((t) => (
