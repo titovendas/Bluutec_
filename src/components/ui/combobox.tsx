@@ -59,8 +59,8 @@ export function Combobox({
           disabled={disabled}
           className="w-full min-w-0 justify-between font-normal"
         >
-          <span className={cn("min-w-0 truncate", !selected && "text-muted-foreground")}>
-            {selected ? selected.label : placeholder}
+          <span className={cn("min-w-0 truncate", !selected && !value && "text-muted-foreground")}>
+            {selected ? selected.label : value ? value : placeholder}
           </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
