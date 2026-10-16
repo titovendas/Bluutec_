@@ -10,8 +10,11 @@ const BRAND_COLOR: [number, number, number] = [0, 142, 202];
 const COMPANY = {
   legalName: "BLUUTEC PLÁSTICOS LTDA",
   cnpj: "58.380.453/0001-70",
-  address: "R. Pedro de Alcântara Meira, 445 - Fazenda Velha
-  Araucária - PR, 83708-132",
+  // Cada item é uma linha no PDF
+  addressLines: [
+    "R. Pedro de Alcântara Meira, 445 - Fazenda Velha",
+    "Araucária - PR, 83708-132",
+  ],
   site: "www.bluutec.com.br",
 };
 
@@ -136,8 +139,8 @@ export async function generateOrderPdf(order: any, items: any[]) {
   doc.setTextColor(90);
   const companyLines = [
     `CNPJ: ${COMPANY.cnpj}`,
-    COMPANY.address,
-    [COMPANY.phone, COMPANY.email, COMPANY.site].filter(Boolean).join("  ·  "),
+    ...COMPANY.addressLines,
+    COMPANY.site,
   ]
     .filter(Boolean)
     .flatMap((l) => doc.splitTextToSize(l, companyMaxWidth) as string[]);

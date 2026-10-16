@@ -18,7 +18,13 @@ export const PRICE_TABLES: {
 ];
 
 export function priceTableLabel(table: string | null | undefined) {
-  return PRICE_TABLES.find((t) => t.value === table)?.label ?? table ?? "—";
+  return PRICE_TABLES.find((t) => t.value === table)?.label ?? (table ? table : "—");
+}
+
+/** Devolve a política se for uma das três válidas; senão null (ex: valor
+ * em branco ou de versões antigas do sistema, como "varejo_10"). */
+export function normalizePriceTable(value: unknown): PriceTable | null {
+  return PRICE_TABLES.some((t) => t.value === value) ? (value as PriceTable) : null;
 }
 
 export function politicaDiscountPercent(table: PriceTable | string): number {
@@ -48,4 +54,48 @@ export function computeNetUnitPrice(
     (1 - (cashDiscountPercent || 0) / 100) *
     (1 - (pickupDiscountPercent || 0) / 100);
   return tablePrice * factor;
+}
+
+
+/**
+ * Quando a política de um orçamento está em branco ou inválida, descobre
+ * qual foi a usada refazendo a conta: a política certa é a única que
+ * reproduz o preço unitário gravado em TODOS os itens. Se nenhuma (ou
+ * mais de uma) bater, devolve null — e aí a tela pede pra escolher.
+ */
+export function inferPriceTable(
+  items: { table_price?: number | null; discount_percent?: number | null; unit_price?: number | null }[],
+  cashDiscountPercent = 0,
+  pickupDiscountPercent = 0
+): PriceTable | null {
+  const usable = items.filter((i) => Number(i.table_price) > 0 && Number(i.unit_price) > 0);
+  if (usable.length === 0) return null;
+  const matches = PRICE_TABLES.filter((t) =>
+    usable.every(
+      (i) =>
+        Math.abs(
+          computeNetUnitPrice(
+            Number(i.table_price),
+            t.value,
+            Number(i.discount_percent ?? 0),
+            cashDiscountPercent,
+            pickupDiscountPercent
+          ) - Number(i.unit_price)
+        ) < 0.0015
+    )
+  );
+  return matches.length === 1 ? matches[0]!.value : null;
+}
+
+/** Política válida do pedido: a gravada, ou a deduzida pelos preços. */
+export function resolveOrderPriceTable(
+  priceTable: unknown,
+  items: { table_price?: number | null; discount_percent?: number | null; unit_price?: number | null }[],
+  cashDiscountPercent = 0,
+  pickupDiscountPercent = 0
+): PriceTable | null {
+  return (
+    normalizePriceTable(priceTable) ??
+    inferPriceTable(items, cashDiscountPercent, pickupDiscountPercent)
+  );
 }

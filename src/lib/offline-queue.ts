@@ -1,4 +1,5 @@
 import { get, set } from "idb-keyval";
+import { resolveOrderPriceTable } from "@/lib/price-tables";
 import {
   listCustomers,
   listOrders,
@@ -203,6 +204,24 @@ export async function queueCustomerDelete(id: string) {
 
 // ---------- Pedidos ----------
 
+/**
+ * Garante que a política comercial do pedido seja válida antes de gravar
+ * no aparelho ou enviar ao servidor. Se estiver em branco/inválida (pedidos
+ * de versões antigas), deduz pelos preços dos itens; sem como deduzir,
+ * mantém o valor como está (o servidor então usa "varejo", sem travar).
+ */
+function withValidPriceTable(payload: OrderPayload): OrderPayload {
+  const resolved = resolveOrderPriceTable(
+    payload.price_table,
+    payload.items ?? [],
+    payload.cash_discount_percent ?? 0,
+    payload.pickup_discount_percent ?? 0
+  );
+  return resolved && resolved !== payload.price_table
+    ? { ...payload, price_table: resolved }
+    : payload;
+}
+
 export async function queueOrder(
   payload: OrderPayload,
   customerSnapshot: CustomerPayload | null
@@ -212,7 +231,7 @@ export async function queueOrder(
   const record: PendingOrderOp = {
     type: "create",
     localId: genLocalId("local-order"),
-    payload,
+    payload: withValidPriceTable(payload),
     customerSnapshot,
     sellerNameSnapshot,
     totals: computeOrderTotals(payload.items ?? []),
@@ -229,6 +248,7 @@ export async function queueOrderUpsert(
 ) {
   const pending = await getPendingOrderOps();
   const sellerNameSnapshot = await getDefaultSellerNameOffline();
+  payload = withValidPriceTable(payload);
   const totals = computeOrderTotals(payload.items ?? []);
 
   if (id.startsWith("local-order-")) {
@@ -311,7 +331,7 @@ export async function getOrderForDisplay(id: string) {
     customer: op.customerSnapshot,
     seller_name: op.sellerNameSnapshot,
     status: op.payload.status,
-    price_table: op.payload.price_table,
+    price_table: withValidPriceTable(op.payload).price_table,
     payment_term: op.payload.payment_term,
     cash_discount_percent: op.payload.cash_discount_percent ?? 0,
     pickup_discount_percent: op.payload.pickup_discount_percent ?? 0,
@@ -561,11 +581,14 @@ export async function syncPendingData(): Promise<{
         customerId = realId;
       }
 
+      // Pedidos guardados por versões antigas podem ter a política em
+      // branco: corrige antes de enviar, pra não ficar preso na fila.
+      const payload = withValidPriceTable(op.payload);
       if (op.type === "create") {
-        await upsertOrder({ data: { ...op.payload, customer_id: customerId } });
+        await upsertOrder({ data: { ...payload, customer_id: customerId } });
       } else {
         await upsertOrder({
-          data: { ...op.payload, customer_id: customerId, id: op.id },
+          data: { ...payload, customer_id: customerId, id: op.id },
         });
       }
       await removeOrderOp(op);

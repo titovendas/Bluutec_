@@ -149,7 +149,15 @@ const orderSchema = z.object({
   customer_id: z.string().uuid(),
   seller_id: optionalId,
   status: orderStatusSchema.default("orcamento"),
-  price_table: priceTableSchema.default("varejo"),
+  // Orçamentos antigos (ou guardados no aparelho por versões antigas)
+  // podem chegar com a política em branco ou inválida — isso não pode
+  // travar o salvamento nem a sincronização. O app tenta deduzir a política
+  // pelos preços antes de enviar; se não der, entra como "varejo".
+  price_table: z.preprocess(
+    (v) =>
+      typeof v === "string" && ["varejo", "especialista", "atacado"].includes(v) ? v : "varejo",
+    priceTableSchema
+  ),
   payment_term: z.string().optional().or(z.literal("")),
   cash_discount_percent: z.coerce.number().min(0).max(100).default(0),
   pickup_discount_percent: z.coerce.number().min(0).max(100).default(0),
@@ -512,16 +520,28 @@ export const upsertOrder = createServerFn({ method: "POST" })
 
     let orderId = data.id;
     let orderNumber: number | null = null;
+    const isUpdate = !!orderId;
 
+    // Edição: guarda os itens atuais. Os novos são inseridos ANTES de
+    // qualquer coisa ser apagada — se algo falhar no meio, o pedido
+    // continua como estava (antes, apagava primeiro e podia ficar sem itens).
+    let oldItemIds: string[] = [];
     if (orderId) {
-      const { error } = await supabase
+      const { data: owner, error: ownerError } = await supabase
         .from("orders")
-        .update(orderPayload)
+        .select("id")
         .eq("id", orderId)
-        .eq("user_id", userId);
-      if (error) throw new Error(error.message);
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (ownerError) throw new Error(ownerError.message);
+      if (!owner) throw new Error("Pedido não encontrado.");
 
-      await supabase.from("order_items").delete().eq("order_id", orderId);
+      const { data: oldItems, error: oldError } = await supabase
+        .from("order_items")
+        .select("id")
+        .eq("order_id", orderId);
+      if (oldError) throw new Error(oldError.message);
+      oldItemIds = (oldItems ?? []).map((i: any) => i.id as string);
     } else {
       const { data: inserted, error } = await supabase
         .from("orders")
@@ -550,10 +570,40 @@ export const upsertOrder = createServerFn({ method: "POST" })
       total: base + ipi_value + st_value,
     }));
 
-    const { error: itemsError } = await supabase
+    const { data: newItems, error: itemsError } = await supabase
       .from("order_items")
-      .insert(itemsPayload);
-    if (itemsError) throw new Error(itemsError.message);
+      .insert(itemsPayload)
+      .select("id");
+    if (itemsError) {
+      // Pedido novo sem itens não faz sentido: desfaz.
+      if (!isUpdate) await supabase.from("orders").delete().eq("id", orderId!);
+      throw new Error(itemsError.message);
+    }
+    const newItemIds = (newItems ?? []).map((i: any) => i.id as string);
+
+    if (isUpdate) {
+      const { error: updateError } = await supabase
+        .from("orders")
+        .update(orderPayload)
+        .eq("id", orderId!)
+        .eq("user_id", userId);
+      if (updateError) {
+        // Não conseguiu atualizar o cabeçalho: remove os itens novos e
+        // deixa o pedido exatamente como estava.
+        if (newItemIds.length > 0) {
+          await supabase.from("order_items").delete().in("id", newItemIds);
+        }
+        throw new Error(updateError.message);
+      }
+
+      if (oldItemIds.length > 0) {
+        const { error: deleteError } = await supabase
+          .from("order_items")
+          .delete()
+          .in("id", oldItemIds);
+        if (deleteError) throw new Error(deleteError.message);
+      }
+    }
 
     return { id: orderId, order_number: orderNumber };
   });
