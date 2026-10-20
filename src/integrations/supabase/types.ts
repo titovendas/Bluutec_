@@ -240,6 +240,7 @@ export type Database = {
       orders: {
         Row: {
           cash_discount_percent: number
+          client_ref: string | null
           created_at: string
           customer_id: string | null
           id: string
@@ -259,6 +260,7 @@ export type Database = {
         }
         Insert: {
           cash_discount_percent?: number
+          client_ref?: string | null
           created_at?: string
           customer_id?: string | null
           id?: string
@@ -278,6 +280,7 @@ export type Database = {
         }
         Update: {
           cash_discount_percent?: number
+          client_ref?: string | null
           created_at?: string
           customer_id?: string | null
           id?: string
