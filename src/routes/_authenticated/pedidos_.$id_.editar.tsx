@@ -8,6 +8,7 @@ import {
   listCustomersMerged,
   getOrderForDisplay,
   queueOrderUpsert,
+  clearPendingOrderOpsFor,
 } from "@/lib/offline-queue";
 import { getCatalogProductsByIdsOfflineAware } from "@/lib/offline-catalog";
 import { OrderForm, type FormItem } from "@/components/orders/order-form";
@@ -53,6 +54,10 @@ function EditOrderPage() {
   const [originalStatus, setOriginalStatus] = useState("orcamento");
   // "" = política não informada no pedido original: a pessoa precisa escolher.
   const [priceTable, setPriceTable] = useState<PriceTable | "">("");
+  // Política gravada no orçamento: vem preenchida e TRAVADA. Trocar só de
+  // propósito (botão "Alterar política"), porque recalcula todos os preços.
+  const [policyLocked, setPolicyLocked] = useState(false);
+  const [storedPolicyRaw, setStoredPolicyRaw] = useState<string>("");
   const [paymentTerm, setPaymentTerm] = useState("");
   const [cashDiscountPercent, setCashDiscountPercent] = useState(0);
   const [pickupDiscountPercent, setPickupDiscountPercent] = useState(0);
@@ -75,14 +80,15 @@ function EditOrderPage() {
     setOriginalStatus(order.status || "orcamento");
     // Política gravada no pedido; se estiver em branco/inválida, deduz
     // pelos preços dos itens. Sem como deduzir, fica vazia e pede escolha.
-    setPriceTable(
-      resolveOrderPriceTable(
-        order.price_table,
-        orderData.items as any[],
-        Number(order.cash_discount_percent ?? 0),
-        Number(order.pickup_discount_percent ?? 0)
-      ) ?? ""
+    const resolvedPolicy = resolveOrderPriceTable(
+      order.price_table,
+      orderData.items as any[],
+      Number(order.cash_discount_percent ?? 0),
+      Number(order.pickup_discount_percent ?? 0)
     );
+    setPriceTable(resolvedPolicy ?? "");
+    setPolicyLocked(!!resolvedPolicy);
+    setStoredPolicyRaw(String(order.price_table ?? ""));
     setPaymentTerm(order.payment_term || "");
     setCashDiscountPercent(Number(order.cash_discount_percent ?? 0));
     setPickupDiscountPercent(Number(order.pickup_discount_percent ?? 0));
@@ -180,6 +186,9 @@ function EditOrderPage() {
       if (isOnline && !isPending) {
         try {
           await upsertOrder({ data: { id, ...orderPayload } });
+          // Salvou no servidor: apaga qualquer versão antiga desse pedido
+          // que estivesse presa na fila do aparelho.
+          await clearPendingOrderOpsFor(id);
           toast.success("Orçamento atualizado com sucesso");
         } catch (err: any) {
           await saveLocally();
@@ -244,9 +253,10 @@ function EditOrderPage() {
 
       {!priceTable && (
         <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          A política comercial deste orçamento não foi gravada. Escolha qual
-          foi usada (Varejo, Especialista ou Atacado) antes de salvar — os
-          preços são recalculados com a política escolhida.
+          A política comercial deste orçamento não foi gravada
+          {storedPolicyRaw ? ` (valor encontrado: "${storedPolicyRaw}")` : ""}.
+          Escolha qual foi usada (Varejo, Especialista ou Atacado) antes de
+          salvar — os preços são recalculados com a política escolhida.
         </div>
       )}
 
@@ -257,6 +267,16 @@ function EditOrderPage() {
           setCustomerId={setCustomerId}
           priceTable={priceTable as PriceTable}
           setPriceTable={setPriceTable}
+          priceTableLocked={policyLocked}
+          onUnlockPriceTable={() => {
+            if (
+              window.confirm(
+                "Alterar a política comercial recalcula TODOS os preços deste orçamento. Deseja continuar?"
+              )
+            ) {
+              setPolicyLocked(false);
+            }
+          }}
           paymentTerm={paymentTerm}
           setPaymentTerm={setPaymentTerm}
           cashDiscountPercent={cashDiscountPercent}

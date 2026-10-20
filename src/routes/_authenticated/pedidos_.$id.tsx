@@ -26,6 +26,7 @@ import { getOrderForDisplay, queueOrderUpsert } from "@/lib/offline-queue";
 import {
   formatCurrency,
   formatDate,
+  formatCurrency3,
   orderNumberLabel,
 } from "@/lib/sales-formatters";
 import { priceTableLabel } from "@/lib/price-tables";
@@ -261,7 +262,7 @@ function OrderDetailPage() {
                   </TableCell>
                   <TableCell className="text-right">{item.quantity}</TableCell>
                   <TableCell className="text-right">
-                    {formatCurrency(item.unit_price)}
+                    {formatCurrency3(item.unit_price)}
                   </TableCell>
                   <TableCell className="text-right">
                     {formatCurrency(item.ipi_value)}
@@ -276,7 +277,7 @@ function OrderDetailPage() {
                     </span>
                   </TableCell>
                   <TableCell className="text-right font-bold text-primary">
-                    {formatCurrency(
+                    {formatCurrency3(
                       Number(item.unit_price) *
                         (1 +
                           (Number(item.ipi_percent) + Number(item.st_percent)) /
