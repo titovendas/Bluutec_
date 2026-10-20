@@ -1,7 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import logo from "@/assets/bluutec-logo.png";
-import { formatCurrency, formatDate, orderNumberLabel } from "@/lib/sales-formatters";
+import { formatCurrency, formatCurrency3, formatDate, orderNumberLabel } from "@/lib/sales-formatters";
 
 // Paleta Bluutec: azul da marca (#008ECA).
 const BRAND_COLOR: [number, number, number] = [0, 142, 202];
@@ -236,12 +236,12 @@ export async function generateOrderPdf(order: any, items: any[]) {
         item.code ?? "—",
         item.description ?? "—",
         String(item.quantity),
-        formatCurrency(item.unit_price),
+        formatCurrency3(item.unit_price),
         ...(showIpi
           ? [`${formatCurrency(item.ipi_value)}\n(${fmtPct(item.ipi_percent)}%)`]
           : []),
         `${formatCurrency(item.st_value)}\n(${fmtPct(item.st_percent)}%)`,
-        formatCurrency(unitWithTaxes),
+        formatCurrency3(unitWithTaxes),
         formatCurrency(item.total),
       ];
     }),

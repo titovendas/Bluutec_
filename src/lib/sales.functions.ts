@@ -162,6 +162,12 @@ const orderSchema = z.object({
   cash_discount_percent: z.coerce.number().min(0).max(100).default(0),
   pickup_discount_percent: z.coerce.number().min(0).max(100).default(0),
   notes: z.string().max(2000).optional().or(z.literal("")),
+  // Identificador do pedido criado no aparelho: reenviar o mesmo pedido
+  // (ex: a resposta se perdeu) não cria uma cópia.
+  client_ref: z.string().max(100).optional(),
+  // Momento em que a edição foi feita no aparelho. Se o pedido no servidor
+  // foi alterado DEPOIS disso, a edição é antiga e não pode sobrescrevê-lo.
+  base_time: z.string().optional(),
   items: z.array(orderItemSchema).min(1),
 });
 
@@ -512,6 +518,7 @@ export const upsertOrder = createServerFn({ method: "POST" })
       cash_discount_percent: data.cash_discount_percent,
       pickup_discount_percent: data.pickup_discount_percent,
       notes: data.notes || null,
+      ...(data.client_ref && !data.id ? { client_ref: data.client_ref } : {}),
       subtotal,
       ipi_total,
       st_total,
@@ -529,12 +536,18 @@ export const upsertOrder = createServerFn({ method: "POST" })
     if (orderId) {
       const { data: owner, error: ownerError } = await supabase
         .from("orders")
-        .select("id")
+        .select("id, updated_at")
         .eq("id", orderId)
         .eq("user_id", userId)
         .maybeSingle();
       if (ownerError) throw new Error(ownerError.message);
       if (!owner) throw new Error("Pedido não encontrado.");
+      if (
+        data.base_time &&
+        new Date((owner as any).updated_at).getTime() > new Date(data.base_time).getTime() + 120_000
+      ) {
+        return { id: orderId, order_number: null as number | null, skipped: true };
+      }
 
       const { data: oldItems, error: oldError } = await supabase
         .from("order_items")
@@ -543,12 +556,34 @@ export const upsertOrder = createServerFn({ method: "POST" })
       if (oldError) throw new Error(oldError.message);
       oldItemIds = (oldItems ?? []).map((i: any) => i.id as string);
     } else {
-      const { data: inserted, error } = await supabase
+      if (data.client_ref) {
+        const { data: existing } = await supabase
+          .from("orders")
+          .select("id, order_number")
+          .eq("user_id", userId)
+          .eq("client_ref", data.client_ref)
+          .maybeSingle();
+        if (existing) {
+          // Esse pedido já chegou ao servidor numa tentativa anterior.
+          return { id: existing.id as string, order_number: ((existing as any).order_number ?? null) as number | null, skipped: false };
+        }
+      }
+      let { data: inserted, error } = await supabase
         .from("orders")
         .insert(orderPayload)
         .select()
         .single();
-      if (error) throw new Error(error.message);
+      if (error && /client_ref/.test(error.message)) {
+        // O banco ainda não tem a coluna client_ref (SQL não rodado):
+        // salva sem o identificador em vez de travar o pedido.
+        const { client_ref: _omit, ...withoutRef } = orderPayload as any;
+        ({ data: inserted, error } = await supabase
+          .from("orders")
+          .insert(withoutRef)
+          .select()
+          .single());
+      }
+      if (error || !inserted) throw new Error(error?.message ?? "Erro ao salvar o pedido.");
       orderId = inserted.id;
       orderNumber = (inserted as any).order_number ?? null;
     }
@@ -605,7 +640,7 @@ export const upsertOrder = createServerFn({ method: "POST" })
       }
     }
 
-    return { id: orderId, order_number: orderNumber };
+    return { id: orderId, order_number: orderNumber as number | null, skipped: false };
   });
 
 // Tabela de preços
@@ -1294,6 +1329,39 @@ export const getCatalogProductsByIds = createServerFn({ method: "GET" })
       .in("id", data.ids);
     if (error) throw new Error(error.message);
     return await attachImages(supabase, rows ?? []);
+  });
+
+/**
+ * Pedidos guardados no aparelho por versões antigas não tinham
+ * identificador, e por um defeito da fila podem ter sido enviados mais de
+ * uma vez. Antes de reenviar um desses, procura no servidor um pedido do
+ * mesmo cliente, com o mesmo total, criado depois do momento em que foi
+ * montado — se existir, o pedido já está lá.
+ */
+export const findLegacyDuplicateOrder = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) =>
+    z
+      .object({
+        customer_id: z.string().uuid(),
+        total: z.coerce.number(),
+        createdAt: z.string(),
+      })
+      .parse(data)
+  )
+  .handler(async ({ context, data }) => {
+    const { supabase, userId } = context;
+    const since = new Date(new Date(data.createdAt).getTime() - 60_000).toISOString();
+    const { data: rows, error } = await supabase
+      .from("orders")
+      .select("id, total, created_at")
+      .eq("user_id", userId)
+      .eq("customer_id", data.customer_id)
+      .gte("created_at", since)
+      .order("created_at", { ascending: true });
+    if (error) throw new Error(error.message);
+    const match = (rows ?? []).find((r: any) => Math.abs(Number(r.total) - data.total) < 0.05);
+    return { found: !!match, id: (match as any)?.id ?? null };
   });
 
 export const updateOrderStatus = createServerFn({ method: "POST" })

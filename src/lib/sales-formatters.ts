@@ -6,6 +6,18 @@ export function formatCurrency(value: number | string | null | undefined) {
   }).format(num);
 }
 
+/** Valor unitário com 3 casas decimais (R$ 12,630): com só 2, a conta
+ * "total ÷ quantidade" não batia com o unitário mostrado. */
+export function formatCurrency3(value: number | string | null | undefined) {
+  const num = typeof value === "string" ? parseFloat(value) : value ?? 0;
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  }).format(num);
+}
+
 export function formatDate(value: string | null | undefined) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("pt-BR", {

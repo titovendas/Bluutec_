@@ -7,7 +7,9 @@ import {
   upsertOrder,
   deleteCustomer,
   deleteOrder,
+  findLegacyDuplicateOrder,
 } from "@/lib/sales.functions";
+import { formatCurrency } from "@/lib/sales-formatters";
 import {
   getOfflineCustomers,
   syncCustomers,
@@ -62,19 +64,23 @@ type OrderTotals = {
 };
 
 export type PendingCustomerOp =
-  | { type: "create"; localId: string; payload: CustomerPayload; createdAt: string }
-  | { type: "update"; id: string; payload: CustomerPayload; createdAt: string }
-  | { type: "delete"; id: string; createdAt: string };
+  | { type: "create"; localId: string; payload: CustomerPayload; createdAt: string; lastError?: string }
+  | { type: "update"; id: string; payload: CustomerPayload; createdAt: string; lastError?: string }
+  | { type: "delete"; id: string; createdAt: string; lastError?: string };
 
 export type PendingOrderOp =
   | {
       type: "create";
       localId: string;
+      /** Identificador enviado ao servidor pra não duplicar o pedido num reenvio.
+       * Pedidos guardados por versões antigas não têm. */
+      clientRef?: string;
       payload: OrderPayload;
       customerSnapshot: CustomerPayload | null;
       sellerNameSnapshot: string | null;
       totals: OrderTotals;
       createdAt: string;
+      lastError?: string;
     }
   | {
       type: "update";
@@ -84,8 +90,9 @@ export type PendingOrderOp =
       sellerNameSnapshot: string | null;
       totals: OrderTotals;
       createdAt: string;
+      lastError?: string;
     }
-  | { type: "delete"; id: string; createdAt: string };
+  | { type: "delete"; id: string; createdAt: string; lastError?: string };
 
 function genLocalId(prefix: string) {
   const rand =
@@ -228,9 +235,11 @@ export async function queueOrder(
 ) {
   const pending = await getPendingOrderOps();
   const sellerNameSnapshot = await getDefaultSellerNameOffline();
+  const localId = genLocalId("local-order");
   const record: PendingOrderOp = {
     type: "create",
-    localId: genLocalId("local-order"),
+    localId,
+    clientRef: localId,
     payload: withValidPriceTable(payload),
     customerSnapshot,
     sellerNameSnapshot,
@@ -491,32 +500,54 @@ export async function listOrdersMerged(): Promise<any[]> {
 export async function syncPendingData(): Promise<{
   syncedCustomers: number;
   syncedOrders: number;
+  alreadyOnServer: number;
+  staleSkipped: number;
   failed: number;
   errors: string[];
 }> {
   if (!isOnlineNow()) {
-    return { syncedCustomers: 0, syncedOrders: 0, failed: 0, errors: [] };
+    return { syncedCustomers: 0, syncedOrders: 0, alreadyOnServer: 0, staleSkipped: 0, failed: 0, errors: [] };
   }
 
   let syncedCustomers = 0;
   let syncedOrders = 0;
+  let alreadyOnServer = 0;
+  let staleSkipped = 0;
   let failed = 0;
   const errors: string[] = [];
 
   const idMap = new Map<string, string>();
   const pendingCustomerOps = await getPendingCustomerOps();
+  let serverCustomers: any[] | null = null;
 
   for (const op of pendingCustomerOps) {
     try {
       if (op.type === "create") {
-        const result = await upsertCustomer({ data: op.payload });
-        if (result?.id) {
-          idMap.set(op.localId, result.id);
+        // Se já existe no servidor um cliente com o mesmo CNPJ (por ex. numa
+        // tentativa anterior que chegou lá), usa esse em vez de duplicar.
+        let realId: string | undefined;
+        if (op.payload.document) {
+          if (serverCustomers === null) {
+            serverCustomers = await listCustomers().catch(() => []);
+          }
+          realId = serverCustomers.find(
+            (c: any) => c.document && c.document === op.payload.document
+          )?.id as string | undefined;
+        }
+        if (!realId) {
+          const result = await upsertCustomer({ data: op.payload });
+          realId = result?.id;
+          if (realId && serverCustomers) {
+            serverCustomers.push({ id: realId, document: op.payload.document });
+          }
+        }
+        if (realId) {
+          idMap.set(op.localId, realId);
           // Grava o id real já nos pedidos pendentes que apontam pra esse
           // cliente local, para não ficarem órfãos caso falhem agora e só
           // sejam tentados de novo numa sincronização futura (quando esse
           // mapeamento em memória já não existiria mais).
-          await remapCustomerIdInPendingOrders(op.localId, result.id);
+          await remapCustomerIdInPendingOrders(op.localId, realId);
         }
         await removeCustomerOp(op);
         syncedCustomers++;
@@ -531,7 +562,9 @@ export async function syncPendingData(): Promise<{
       }
     } catch (err: any) {
       failed++;
-      errors.push(err?.message || "Erro ao sincronizar cliente");
+      const message = err?.message || "Erro ao sincronizar cliente";
+      errors.push(message);
+      await setCustomerOpError(op, message).catch(() => {});
     }
   }
 
@@ -573,9 +606,9 @@ export async function syncPendingData(): Promise<{
 
         if (!realId) {
           failed++;
-          errors.push(
-            `Pedido de "${op.customerSnapshot?.name ?? "cliente"}" aguardando o cliente sincronizar primeiro.`
-          );
+          const message = `Aguardando o cliente "${op.customerSnapshot?.name ?? ""}" sincronizar primeiro.`;
+          errors.push(`Pedido de "${op.customerSnapshot?.name ?? "cliente"}" aguardando o cliente sincronizar primeiro.`);
+          await setOrderOpError(op, message).catch(() => {});
           continue;
         }
         customerId = realId;
@@ -585,17 +618,49 @@ export async function syncPendingData(): Promise<{
       // branco: corrige antes de enviar, pra não ficar preso na fila.
       const payload = withValidPriceTable(op.payload);
       if (op.type === "create") {
-        await upsertOrder({ data: { ...payload, customer_id: customerId } });
-      } else {
+        if (!op.clientRef) {
+          // Pedido guardado por versão antiga (sem identificador): como a
+          // fila reenviava itens já sincronizados, confere se ele já está
+          // no servidor antes de criar outro igual.
+          const dup = await findLegacyDuplicateOrder({
+            data: {
+              customer_id: customerId,
+              total: op.totals.total,
+              createdAt: op.createdAt,
+            },
+          }).catch(() => ({ found: false }));
+          if (dup.found) {
+            await removeOrderOp(op);
+            alreadyOnServer++;
+            continue;
+          }
+        }
         await upsertOrder({
-          data: { ...payload, customer_id: customerId, id: op.id },
+          data: {
+            ...payload,
+            customer_id: customerId,
+            client_ref: op.clientRef ?? op.localId,
+          },
         });
+      } else {
+        const res = await upsertOrder({
+          data: { ...payload, customer_id: customerId, id: op.id, base_time: op.createdAt },
+        });
+        if (res?.skipped) {
+          // O pedido já foi alterado no servidor depois dessa edição: a do
+          // aparelho é antiga e é descartada (não sobrescreve o mais novo).
+          await removeOrderOp(op);
+          staleSkipped++;
+          continue;
+        }
       }
       await removeOrderOp(op);
       syncedOrders++;
     } catch (err: any) {
       failed++;
-      errors.push(err?.message || "Erro ao sincronizar pedido");
+      const message = err?.message || "Erro ao sincronizar pedido";
+      errors.push(message);
+      await setOrderOpError(op, message).catch(() => {});
     }
   }
 
@@ -603,7 +668,7 @@ export async function syncPendingData(): Promise<{
     syncCustomers().catch(() => {});
   }
 
-  return { syncedCustomers, syncedOrders, failed, errors };
+  return { syncedCustomers, syncedOrders, alreadyOnServer, staleSkipped, failed, errors };
 }
 
 async function remapCustomerIdInPendingOrders(localId: string, realId: string) {
@@ -616,18 +681,128 @@ async function remapCustomerIdInPendingOrders(localId: string, realId: string) {
   await set(PENDING_ORDERS_KEY, next);
 }
 
+// Chave estável de cada item da fila. A remoção NÃO pode comparar os objetos
+// em memória: o que se lê do armazenamento do navegador é sempre uma cópia
+// nova, então a comparação nunca dava igual e o item nunca saía da fila —
+// ficava "aguardando sincronização" para sempre e era reenviado a cada
+// sincronização (podendo duplicar pedidos e clientes).
+function customerOpKey(op: PendingCustomerOp) {
+  return op.type === "create" ? `create:${op.localId}` : `${op.type}:${op.id}`;
+}
+function orderOpKey(op: PendingOrderOp) {
+  return op.type === "create" ? `create:${op.localId}` : `${op.type}:${op.id}`;
+}
+
 async function removeCustomerOp(target: PendingCustomerOp) {
+  const key = customerOpKey(target);
   const pending = await getPendingCustomerOps();
   await set(
     PENDING_CUSTOMERS_KEY,
-    pending.filter((op) => op !== target)
+    pending.filter((op) => customerOpKey(op) !== key)
   );
 }
 
 async function removeOrderOp(target: PendingOrderOp) {
+  const key = orderOpKey(target);
   const pending = await getPendingOrderOps();
   await set(
     PENDING_ORDERS_KEY,
-    pending.filter((op) => op !== target)
+    pending.filter((op) => orderOpKey(op) !== key)
   );
+}
+
+async function setCustomerOpError(target: PendingCustomerOp, message: string) {
+  const key = customerOpKey(target);
+  const pending = await getPendingCustomerOps();
+  await set(
+    PENDING_CUSTOMERS_KEY,
+    pending.map((op): PendingCustomerOp => (customerOpKey(op) === key ? { ...op, lastError: message } : op))
+  );
+}
+
+async function setOrderOpError(target: PendingOrderOp, message: string) {
+  const key = orderOpKey(target);
+  const pending = await getPendingOrderOps();
+  await set(
+    PENDING_ORDERS_KEY,
+    pending.map((op): PendingOrderOp => (orderOpKey(op) === key ? { ...op, lastError: message } : op))
+  );
+}
+
+/** Remove da fila as edições pendentes de um pedido (usado quando a edição
+ * foi salva direto no servidor — senão a versão antiga presa na fila
+ * continuaria aparecendo no lugar da nova). */
+export async function clearPendingOrderOpsFor(id: string) {
+  const pending = await getPendingOrderOps();
+  await set(
+    PENDING_ORDERS_KEY,
+    pending.filter((op) => !(op.type === "update" && op.id === id))
+  );
+}
+
+export type PendingItemInfo = {
+  key: string;
+  kind: "pedido" | "cliente";
+  action: "criar" | "editar" | "excluir";
+  title: string;
+  detail: string;
+  createdAt: string;
+  error: string | null;
+};
+
+/** O que está aguardando sincronização, com o último erro de cada item. */
+export async function listPendingItems(): Promise<PendingItemInfo[]> {
+  const customers = await getPendingCustomerOps();
+  const orders = await getPendingOrderOps();
+  const actionOf = (t: string): PendingItemInfo["action"] =>
+    t === "create" ? "criar" : t === "update" ? "editar" : "excluir";
+
+  const items: PendingItemInfo[] = [];
+  for (const op of customers) {
+    items.push({
+      key: `cliente|${customerOpKey(op)}`,
+      kind: "cliente",
+      action: actionOf(op.type),
+      title: op.type === "delete" ? "Cliente" : op.payload.name || "Cliente",
+      detail: op.type === "delete" ? `Exclusão do cliente ${op.id.slice(0, 8)}` : op.payload.document ?? "",
+      createdAt: op.createdAt,
+      error: op.lastError ?? null,
+    });
+  }
+  for (const op of orders) {
+    if (op.type === "delete") {
+      items.push({
+        key: `pedido|${orderOpKey(op)}`,
+        kind: "pedido",
+        action: "excluir",
+        title: "Pedido",
+        detail: `Exclusão do pedido ${op.id.slice(0, 8)}`,
+        createdAt: op.createdAt,
+        error: op.lastError ?? null,
+      });
+      continue;
+    }
+    items.push({
+      key: `pedido|${orderOpKey(op)}`,
+      kind: "pedido",
+      action: actionOf(op.type),
+      title: op.customerSnapshot?.name || "Pedido",
+      detail: `${op.payload.items?.length ?? 0} item(ns) · ${formatCurrency(op.totals.total)}`,
+      createdAt: op.createdAt,
+      error: op.lastError ?? null,
+    });
+  }
+  return items.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+/** Tira um item da fila SEM enviá-lo (o que foi feito no aparelho se perde). */
+export async function discardPendingItem(key: string) {
+  const [kind, opKey] = key.split("|");
+  if (kind === "cliente") {
+    const pending = await getPendingCustomerOps();
+    await set(PENDING_CUSTOMERS_KEY, pending.filter((op) => customerOpKey(op) !== opKey));
+  } else {
+    const pending = await getPendingOrderOps();
+    await set(PENDING_ORDERS_KEY, pending.filter((op) => orderOpKey(op) !== opKey));
+  }
 }
