@@ -30,7 +30,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { searchCatalog } from "@/lib/offline-catalog";
-import { formatCurrency } from "@/lib/sales-formatters";
+import { formatCurrency, formatCurrency3 } from "@/lib/sales-formatters";
 import {
   PRICE_TABLES,
   catalogTablePrice,
@@ -87,6 +87,9 @@ type Props = {
   setCustomerId: (v: string) => void;
   priceTable: PriceTable;
   setPriceTable: (v: PriceTable) => void;
+  /** Na edição de um orçamento a política vem gravada e travada. */
+  priceTableLocked?: boolean;
+  onUnlockPriceTable?: () => void;
   paymentTerm: string;
   setPaymentTerm: (v: string) => void;
   cashDiscountPercent: number;
@@ -105,6 +108,8 @@ export function OrderForm({
   setCustomerId,
   priceTable,
   setPriceTable,
+  priceTableLocked = false,
+  onUnlockPriceTable,
   paymentTerm,
   setPaymentTerm,
   cashDiscountPercent,
@@ -310,6 +315,7 @@ export function OrderForm({
           <Select
             value={priceTable}
             onValueChange={(v) => setPriceTable(v as PriceTable)}
+            disabled={priceTableLocked}
           >
             <SelectTrigger>
               <SelectValue placeholder="Escolha a política" />
@@ -322,6 +328,20 @@ export function OrderForm({
               ))}
             </SelectContent>
           </Select>
+          {priceTableLocked && (
+            <p className="text-xs text-muted-foreground">
+              Definida na criação do orçamento.{" "}
+              {onUnlockPriceTable && (
+                <button
+                  type="button"
+                  onClick={onUnlockPriceTable}
+                  className="font-medium text-primary underline underline-offset-2"
+                >
+                  Alterar política
+                </button>
+              )}
+            </p>
+          )}
         </div>
         <div className="grid gap-2">
           <Label>Condição de pagamento</Label>
@@ -480,7 +500,7 @@ export function OrderForm({
                         />
                       </TableCell>
                       <TableCell className="px-2 text-right text-sm">
-                        {formatCurrency(unit)}
+                        {formatCurrency3(unit)}
                       </TableCell>
                       {showIpi && (
                         <TableCell className="px-2 text-right text-sm">
@@ -499,7 +519,7 @@ export function OrderForm({
                       <TableCell className="px-2 text-right">
                         {/* Único valor em destaque da linha: negrito, azul escuro e fundo azul claro */}
                         <span className="inline-block rounded-md bg-sky-100 px-2 py-1 text-base font-bold text-[#0a4a6e]">
-                          {formatCurrency(unitWithTaxes)}
+                          {formatCurrency3(unitWithTaxes)}
                         </span>
                       </TableCell>
                       <TableCell className="px-2 text-right text-sm">
@@ -632,7 +652,7 @@ export function OrderForm({
                         Unit. líquido
                       </Label>
                       <p className="flex h-10 items-center text-sm">
-                        {formatCurrency(unit)}
+                        {formatCurrency3(unit)}
                       </p>
                     </div>
                   </div>
@@ -655,7 +675,7 @@ export function OrderForm({
                     <div>
                       <p className="text-xs text-muted-foreground">Unit. c/ imp.</p>
                       <p className="inline-block rounded-md bg-sky-100 px-2 py-0.5 text-base font-bold text-[#0a4a6e]">
-                        {formatCurrency(unit * (1 + (item.ipi_percent + item.st_percent) / 100))}
+                        {formatCurrency3(unit * (1 + (item.ipi_percent + item.st_percent) / 100))}
                       </p>
                     </div>
                     <div className="text-right">
