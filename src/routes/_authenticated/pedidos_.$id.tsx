@@ -29,7 +29,7 @@ import {
   formatCurrency3,
   orderNumberLabel,
 } from "@/lib/sales-formatters";
-import { priceTableLabel } from "@/lib/price-tables";
+import { effectiveUnitPrice, priceTableLabel } from "@/lib/price-tables";
 import { generateOrderPdf } from "@/lib/order-pdf";
 import { toast } from "sonner";
 
@@ -262,7 +262,7 @@ function OrderDetailPage() {
                   </TableCell>
                   <TableCell className="text-right">{item.quantity}</TableCell>
                   <TableCell className="text-right">
-                    {formatCurrency3(item.unit_price)}
+                    {formatCurrency3(effectiveUnitPrice(order as any, item))}
                   </TableCell>
                   <TableCell className="text-right">
                     {formatCurrency(item.ipi_value)}
@@ -278,7 +278,7 @@ function OrderDetailPage() {
                   </TableCell>
                   <TableCell className="text-right font-bold text-primary">
                     {formatCurrency3(
-                      Number(item.unit_price) *
+                      effectiveUnitPrice(order as any, item) *
                         (1 +
                           (Number(item.ipi_percent) + Number(item.st_percent)) /
                             100)
