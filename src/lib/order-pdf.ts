@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import logo from "@/assets/bluutec-logo.png";
+import { effectiveUnitPrice } from "@/lib/price-tables";
 import { formatCurrency, formatCurrency3, formatDate, orderNumberLabel } from "@/lib/sales-formatters";
 
 // Paleta Bluutec: azul da marca (#008ECA).
@@ -228,15 +229,16 @@ export async function generateOrderPdf(order: any, items: any[]) {
       ],
     ],
     body: items.map((item: any) => {
+      // Unitário com o valor completo (o gravado pode estar em 2 casas)
+      const unitNet = effectiveUnitPrice(order, item);
       const unitWithTaxes =
-        Number(item.unit_price) *
-        (1 + (Number(item.ipi_percent) + Number(item.st_percent)) / 100);
+        unitNet * (1 + (Number(item.ipi_percent) + Number(item.st_percent)) / 100);
       return [
         "",
         item.code ?? "—",
         item.description ?? "—",
         String(item.quantity),
-        formatCurrency3(item.unit_price),
+        formatCurrency3(unitNet),
         ...(showIpi
           ? [`${formatCurrency(item.ipi_value)}\n(${fmtPct(item.ipi_percent)}%)`]
           : []),
