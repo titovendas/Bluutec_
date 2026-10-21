@@ -99,3 +99,31 @@ export function resolveOrderPriceTable(
     inferPriceTable(items, cashDiscountPercent, pickupDiscountPercent)
   );
 }
+
+/**
+ * Preço unitário líquido (sem impostos) de um item de pedido JÁ GRAVADO.
+ *
+ * O unitário guardado no banco pode ter sido arredondado em 2 casas (coluna
+ * antiga), enquanto os totais foram calculados com o valor completo — isso
+ * fazia o PDF mostrar, por exemplo, 8,650 quando o correto é 8,646. Aqui o
+ * valor é refeito a partir do preço de tabela, da política e dos descontos
+ * gravados no pedido. Se não der pra refazer, ou se o resultado se afastar
+ * do gravado além de um arredondamento, usa o gravado.
+ */
+export function effectiveUnitPrice(
+  order: { price_table?: unknown; cash_discount_percent?: unknown; pickup_discount_percent?: unknown } | null | undefined,
+  item: { table_price?: unknown; discount_percent?: unknown; unit_price?: unknown }
+): number {
+  const stored = Number(item.unit_price ?? 0);
+  const policy = normalizePriceTable(order?.price_table);
+  const tablePrice = Number(item.table_price ?? 0);
+  if (!policy || !(tablePrice > 0)) return stored;
+  const recomputed = computeNetUnitPrice(
+    tablePrice,
+    policy,
+    Number(item.discount_percent ?? 0),
+    Number(order?.cash_discount_percent ?? 0),
+    Number(order?.pickup_discount_percent ?? 0)
+  );
+  return Math.abs(recomputed - stored) <= 0.0051 ? recomputed : stored;
+}
