@@ -1385,6 +1385,30 @@ export const updateOrderStatus = createServerFn({ method: "POST" })
     return { success: true };
   });
 
+// Marca (ou desmarca) que o pedido confirmado já foi enviado para a fábrica.
+// É um controle manual: o sistema não sabe se o e-mail saiu, quem avisa é o
+// usuário.
+export const setOrderFactorySent = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) =>
+    z.object({ id: z.string().uuid(), sent: z.boolean() }).parse(data)
+  )
+  .handler(async ({ context, data }) => {
+    const { supabase, userId } = context;
+    const { data: rows, error } = await (supabase as any)
+      .from("orders")
+      .update({ factory_sent_at: data.sent ? new Date().toISOString() : null })
+      .eq("id", data.id)
+      .eq("user_id", userId)
+      .eq("status", "pedido")
+      .select("id");
+    if (error) throw new Error(error.message);
+    if (!rows || rows.length === 0) {
+      throw new Error("Só é possível marcar pedidos já confirmados.");
+    }
+    return { success: true };
+  });
+
 export const deleteOrder = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data) => z.object({ id: z.string().uuid() }).parse(data))
