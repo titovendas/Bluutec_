@@ -1,7 +1,18 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { ArrowLeft, Package, User, FileDown, Tag, CheckCircle2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Package,
+  User,
+  FileDown,
+  FileText,
+  Copy,
+  Send,
+  Undo2,
+  Tag,
+  CheckCircle2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { OrderStatusBadge } from "@/components/orders/status-badge";
@@ -21,7 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getOrder, updateOrderStatus } from "@/lib/sales.functions";
+import { getOrder, updateOrderStatus, setOrderFactorySent } from "@/lib/sales.functions";
 import { getOrderForDisplay, queueOrderUpsert } from "@/lib/offline-queue";
 import {
   formatCurrency,
@@ -31,6 +42,7 @@ import {
 } from "@/lib/sales-formatters";
 import { effectiveUnitPrice, priceTableLabel } from "@/lib/price-tables";
 import { generateOrderPdf } from "@/lib/order-pdf";
+import { buildOrderTxt, orderFileNumber } from "@/lib/order-txt";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/pedidos_/$id")({
@@ -48,6 +60,8 @@ function OrderDetailPage() {
   const queryClient = useQueryClient();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [txtOpen, setTxtOpen] = useState(false);
+  const [markingSent, setMarkingSent] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["order", id],
@@ -68,6 +82,44 @@ function OrderDetailPage() {
 
   const { order, items } = data;
   const isConfirmed = order.status === "pedido";
+  const txt = isConfirmed ? buildOrderTxt(order, items) : "";
+  const factorySentAt = ((order as any).factory_sent_at ?? null) as string | null;
+  // Só dá para marcar o envio quando o pedido já está no servidor.
+  const canMarkSent = isConfirmed && !(order as any).__pending && !id.startsWith("local-order-");
+
+  const downloadTxt = () => {
+    const blob = new Blob([txt], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `pedido-${orderFileNumber(order)}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const copyTxt = async () => {
+    try {
+      await navigator.clipboard.writeText(txt);
+      toast.success("TXT copiado!");
+    } catch {
+      toast.error("Não foi possível copiar. Use o botão Baixar TXT.");
+    }
+  };
+
+  const toggleFactorySent = async (sent: boolean) => {
+    setMarkingSent(true);
+    try {
+      await setOrderFactorySent({ data: { id, sent } });
+      toast.success(sent ? "Pedido marcado como enviado à fábrica." : "Marcação removida.");
+      await queryClient.invalidateQueries({ queryKey: ["order", id] });
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao atualizar o pedido");
+    } finally {
+      setMarkingSent(false);
+    }
+  };
 
   const handleConfirmOrder = async () => {
     setConfirming(true);
@@ -123,9 +175,50 @@ function OrderDetailPage() {
         <div className="flex items-center gap-3 rounded-md border border-emerald-300 bg-emerald-50 px-4 py-3 text-emerald-800">
           <CheckCircle2 className="h-5 w-5 shrink-0" />
           <p className="text-sm">
-            <strong>Pedido confirmado.</strong> Ele já foi enviado para
-            faturamento e não pode mais ser alterado.
+            <strong>Pedido confirmado.</strong> Ele não pode mais ser
+            alterado. Baixe o PDF e o TXT para enviar à fábrica.
           </p>
+        </div>
+      )}
+      {canMarkSent && (
+        <div
+          className={
+            factorySentAt
+              ? "flex flex-col gap-3 rounded-md border border-sky-300 bg-sky-50 px-4 py-3 text-sky-800 sm:flex-row sm:items-center sm:justify-between"
+              : "flex flex-col gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-amber-800 sm:flex-row sm:items-center sm:justify-between"
+          }
+        >
+          <p className="text-sm">
+            {factorySentAt ? (
+              <>
+                <strong>Enviado à fábrica</strong> em{" "}
+                {new Date(factorySentAt).toLocaleString("pt-BR", {
+                  dateStyle: "short",
+                  timeStyle: "short",
+                })}
+                .
+              </>
+            ) : (
+              <>
+                <strong>Ainda não enviado à fábrica.</strong> Depois de enviar
+                o e-mail, marque aqui.
+              </>
+            )}
+          </p>
+          {factorySentAt ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={markingSent}
+              onClick={() => toggleFactorySent(false)}
+            >
+              <Undo2 className="mr-2 h-4 w-4" /> Desmarcar
+            </Button>
+          ) : (
+            <Button size="sm" disabled={markingSent} onClick={() => toggleFactorySent(true)}>
+              <Send className="mr-2 h-4 w-4" /> Marcar como enviado
+            </Button>
+          )}
         </div>
       )}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -165,6 +258,11 @@ function OrderDetailPage() {
           >
             <FileDown className="mr-2 h-4 w-4" /> Baixar PDF
           </Button>
+          {isConfirmed && (
+            <Button variant="outline" onClick={() => setTxtOpen(true)}>
+              <FileText className="mr-2 h-4 w-4" /> TXT do pedido
+            </Button>
+          )}
           {!isConfirmed && (
             <>
               <Button asChild variant="outline">
@@ -321,9 +419,10 @@ function OrderDetailPage() {
             <DialogTitle>Confirmar pedido</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Ao confirmar, este orçamento vira um pedido oficial e será
-            enviado para a empresa faturar. <strong>Não será mais possível
-            editar</strong> depois de confirmado.
+            Ao confirmar, este orçamento vira um pedido oficial.{" "}
+            <strong>Não será mais possível editar</strong> depois de
+            confirmado. Em seguida, baixe o TXT e envie o pedido para a
+            fábrica.
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmOpen(false)}>
@@ -336,6 +435,45 @@ function OrderDetailPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={txtOpen} onOpenChange={setTxtOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>TXT do Pedido</DialogTitle>
+          </DialogHeader>
+          <pre className="max-h-64 overflow-auto rounded-md bg-slate-900 p-4 font-mono text-sm text-slate-50">
+            {txt || "Sem itens."}
+          </pre>
+          <p className="text-xs text-muted-foreground">
+            Formato: código;quantidade;preço unitário sem impostos.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={downloadTxt} disabled={!txt}>
+              <FileDown className="mr-2 h-4 w-4" /> Baixar TXT
+            </Button>
+            <Button variant="outline" onClick={copyTxt} disabled={!txt}>
+              <Copy className="mr-2 h-4 w-4" /> Copiar
+            </Button>
+            <Button variant="outline" onClick={() => setTxtOpen(false)}>
+              Fechar
+            </Button>
+          </div>
+          {canMarkSent && !factorySentAt && (
+            <div className="space-y-2 border-t pt-3">
+              <p className="text-sm text-muted-foreground">
+                Depois de enviar para a fábrica, marque o pedido como enviado.
+              </p>
+              <Button
+                variant="secondary"
+                className="w-full"
+                disabled={markingSent}
+                onClick={() => toggleFactorySent(true)}
+              >
+                <Send className="mr-2 h-4 w-4" /> Marcar como enviado à fábrica
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
