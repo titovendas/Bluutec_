@@ -201,13 +201,14 @@ export async function generateOrderPdf(order: any, items: any[]) {
   // Larguras pensadas para a página em pé (515pt úteis): a descrição fica
   // com o que sobra e quebra em duas linhas quando necessário.
   const colStyles: Record<number, any> = {
-    0: { cellWidth: 38, minCellHeight: 38, halign: "center" },
-    1: { cellWidth: 48, halign: "left" },
-    2: { halign: "left" },
-    3: { cellWidth: 30, halign: "right" },
-    4: { cellWidth: 54, halign: "right" },
+    0: { cellWidth: 24, halign: "center" }, // Item (nº da linha)
+    1: { cellWidth: 38, minCellHeight: 38, halign: "center" }, // Foto
+    2: { cellWidth: 48, halign: "left" },
+    3: { halign: "left" },
+    4: { cellWidth: 30, halign: "right" },
+    5: { cellWidth: 54, halign: "right" },
   };
-  let col = 5;
+  let col = 6;
   if (showIpi) colStyles[col++] = { cellWidth: 56, halign: "right" };
   colStyles[col++] = { cellWidth: 56, halign: "right" }; // ST
   colStyles[col++] = { cellWidth: 60, halign: "right", fontStyle: "bold", textColor: BRAND_COLOR };
@@ -217,6 +218,7 @@ export async function generateOrderPdf(order: any, items: any[]) {
     startY: tableStartY,
     head: [
       [
+        "Item",
         "Foto",
         "Código",
         "Descrição",
@@ -228,12 +230,13 @@ export async function generateOrderPdf(order: any, items: any[]) {
         "Total",
       ],
     ],
-    body: items.map((item: any) => {
+    body: items.map((item: any, index: number) => {
       // Unitário com o valor completo (o gravado pode estar em 2 casas)
       const unitNet = effectiveUnitPrice(order, item);
       const unitWithTaxes =
         unitNet * (1 + (Number(item.ipi_percent) + Number(item.st_percent)) / 100);
       return [
+        String(index + 1),
         "",
         item.code ?? "—",
         item.description ?? "—",
@@ -252,7 +255,7 @@ export async function generateOrderPdf(order: any, items: any[]) {
     margin: { left: 40, right: 40 },
     columnStyles: colStyles,
     didDrawCell: (data: any) => {
-      if (data.section === "body" && data.column.index === 0) {
+      if (data.section === "body" && data.column.index === 1) {
         const img = images[data.row.index];
         if (img) {
           try {
