@@ -1,6 +1,7 @@
 // Preenche a planilha de pedido da fábrica (modelo enviado por eles) com os
 // dados do pedido, alterando SOMENTE as células de entrada:
 //   B3  razão social        I3  estado (UF)       O4  política comercial
+//   H6  prazo de pagamento (escrito como a lista DADOS da planilha, quando existir)
 //   E   quantidade (por código)    M   desconto do item (combinado)
 //   J   ST (zerado só para cliente construtora)
 // Todo o resto — fórmulas, proteção, listas de opções, imagens — é copiado
@@ -32,6 +33,8 @@ export type FactorySheetInput = {
   policyFraction: number;
   uf: string | null;
   taxFree: boolean;
+  /** Prazo de pagamento do pedido (ex.: "28/56/84 DD"). */
+  paymentTerm?: string | null;
   items: FactorySheetItem[];
 };
 
@@ -39,6 +42,10 @@ export type FactorySheetResult = {
   bytes: Uint8Array;
   /** Códigos do pedido que não existem na planilha da fábrica. */
   missingCodes: string[];
+  /** Texto gravado na célula do prazo (H6), ou null se o pedido não tem prazo. */
+  paymentTermWritten: string | null;
+  /** true se o prazo existe na lista da planilha (aí ela calcula as parcelas). */
+  paymentTermMatched: boolean;
 };
 
 const decoder = new TextDecoder("utf-8");
@@ -163,6 +170,46 @@ async function findSheetPath(entries: ZipEntry[], sheetName: string): Promise<st
 }
 
 type ItemRow = { row: number; code: string };
+
+/** "28 / 56 / 84 DD" e "28/56/84DD" viram a mesma chave: "28/56/84". */
+function termKey(text: string): string {
+  return (text.match(/\d+/g) ?? []).join("/");
+}
+
+/** Lista de prazos da aba DADOS (coluna A, a partir da linha 2). */
+async function readTermList(
+  entries: ZipEntry[],
+  shared: string[]
+): Promise<{ text: string; key: string }[]> {
+  try {
+    const path = await findSheetPath(entries, "DADOS");
+    const entry = entries.find((e) => e.name === path);
+    if (!entry) return [];
+    const xml = decoder.decode(await inflateEntry(entry));
+    const list: { text: string; key: string }[] = [];
+    const rowRe = /<row r="(\d+)"[^>]*?>([\s\S]*?)<\/row>/g;
+    let m: RegExpExecArray | null;
+    while ((m = rowRe.exec(xml))) {
+      const rowNumber = Number(m[1]);
+      if (rowNumber < 2) continue;
+      const a = cellRegex(`A${rowNumber}`).exec(m[2]!);
+      if (!a || !a[2]) continue;
+      const type = attr(a[1] ?? "", "t");
+      let text = "";
+      if (type === "s") {
+        const v = /<v>([\s\S]*?)<\/v>/.exec(a[2]);
+        text = v ? (shared[Number(v[1])] ?? "") : "";
+      } else if (type === "inlineStr") {
+        text = xmlUnescape(((/<t\b[^>]*>([\s\S]*?)<\/t>/.exec(a[2]) ?? [])[1] ?? ""));
+      }
+      const key = termKey(text);
+      if (text.trim() && key) list.push({ text: text.trim(), key });
+    }
+    return list;
+  } catch {
+    return [];
+  }
+}
 
 /** Linhas de produto do modelo: as que têm um código numérico na coluna A. */
 function listItemRows(sheetXml: string, shared: string[]): ItemRow[] {
@@ -295,6 +342,21 @@ export async function fillFactorySheet(input: FactorySheetInput): Promise<Factor
   });
   xml = editRow(xml, 4, (row) => setCell(row, "O4", numberCell("O4", input.policyFraction)));
 
+  // Prazo de pagamento: usa o texto da lista da planilha (DADOS) quando o
+  // prazo do pedido existe nela, para a planilha calcular as parcelas.
+  let paymentTermWritten: string | null = null;
+  let paymentTermMatched = false;
+  const rawTerm = (input.paymentTerm ?? "").trim();
+  if (rawTerm) {
+    const list = await readTermList(entries, shared);
+    const found = list.find((t) => t.key === termKey(rawTerm));
+    paymentTermWritten = found ? found.text : rawTerm;
+    paymentTermMatched = Boolean(found);
+    xml = editRow(xml, 6, (row) => setCell(row, "H6", textCell("H6", paymentTermWritten!)));
+  } else {
+    xml = editRow(xml, 6, (row) => setCell(row, "H6", emptyCell("H6")));
+  }
+
   // Itens: limpa o que veio de exemplo no modelo e grava o pedido.
   for (const { row, code } of itemRows) {
     const w = wanted.get(code);
@@ -345,5 +407,5 @@ export async function fillFactorySheet(input: FactorySheetInput): Promise<Factor
     e.name === sheetEntry.name ? newSheet : e.name === workbookEntry.name ? newWorkbook : e
   );
   const cleaned = await removeDanglingReferences(out);
-  return { bytes: writeZip(cleaned), missingCodes: missing };
+  return { bytes: writeZip(cleaned), missingCodes: missing, paymentTermWritten, paymentTermMatched };
 }
