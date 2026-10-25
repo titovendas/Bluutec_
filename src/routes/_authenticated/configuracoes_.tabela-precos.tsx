@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import { normalizeXlsxBuffer } from "@/lib/zip-lite";
 import {
   ArrowLeft,
   Upload,
@@ -179,7 +180,8 @@ function PriceTableSettingsPage() {
     if (!file) return;
     try {
       const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: "array" });
+      // Arruma planilhas vindas de outros programas (ex.: "Bad compressed size").
+      const workbook = XLSX.read(normalizeXlsxBuffer(buffer), { type: "array" });
       if (workbook.SheetNames.length === 0) {
         toast.error("Essa planilha não tem nenhuma aba.");
         return;

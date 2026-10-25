@@ -7,6 +7,7 @@ import {
   User,
   FileDown,
   FileText,
+  FileSpreadsheet,
   Copy,
   Send,
   Undo2,
@@ -43,6 +44,13 @@ import {
 import { effectiveUnitPrice, priceTableLabel } from "@/lib/price-tables";
 import { generateOrderPdf } from "@/lib/order-pdf";
 import { buildOrderTxt, orderFileNumber } from "@/lib/order-txt";
+import { fillFactorySheet, FACTORY_SHEET_UFS } from "@/lib/factory-sheet";
+import { loadFactoryTemplate } from "@/lib/factory-template-client";
+import {
+  combinedDiscountFraction,
+  politicaFraction,
+  resolveOrderPriceTable,
+} from "@/lib/price-tables";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/pedidos_/$id")({
@@ -62,6 +70,7 @@ function OrderDetailPage() {
   const [confirming, setConfirming] = useState(false);
   const [txtOpen, setTxtOpen] = useState(false);
   const [markingSent, setMarkingSent] = useState(false);
+  const [buildingSheet, setBuildingSheet] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["order", id],
@@ -97,6 +106,69 @@ function OrderDetailPage() {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  // Planilha de pedido da fábrica (Excel), preenchida com este pedido.
+  const downloadFactorySheet = async () => {
+    setBuildingSheet(true);
+    try {
+      const cash = Number((order as any).cash_discount_percent ?? 0);
+      const pickup = Number((order as any).pickup_discount_percent ?? 0);
+      const policy = resolveOrderPriceTable((order as any).price_table, items as any[], cash, pickup);
+      if (!policy) {
+        throw new Error("O pedido está sem política comercial válida.");
+      }
+      const customer = (order as any).customer;
+      const taxFree = customer?.customer_type === "construtora";
+      const uf = String(customer?.state ?? "").trim().toUpperCase();
+      if (!taxFree && !uf) {
+        throw new Error("O cliente está sem estado cadastrado.");
+      }
+      if (!taxFree && !FACTORY_SHEET_UFS.includes(uf)) {
+        throw new Error(`O estado ${uf} não existe na tabela de ST da planilha da fábrica.`);
+      }
+
+      const template = await loadFactoryTemplate();
+      const result = await fillFactorySheet({
+        template: template.bytes,
+        customerName: String(customer?.name ?? ""),
+        policyFraction: politicaFraction(policy),
+        uf: uf || null,
+        taxFree,
+        items: (items as any[]).map((item) => ({
+          code: String(item.code ?? ""),
+          quantity: Number(item.quantity ?? 0),
+          discountFraction: combinedDiscountFraction(
+            Number(item.discount_percent ?? 0),
+            cash,
+            pickup
+          ),
+        })),
+      });
+      if (result.missingCodes.length > 0) {
+        throw new Error(
+          `Estes códigos não existem no modelo da fábrica: ${result.missingCodes.join(", ")}. ` +
+            "Envie a planilha mais recente em Configurações → Planilha da fábrica."
+        );
+      }
+
+      const blob = new Blob([result.bytes as BlobPart], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `pedido-${orderFileNumber(order)}-fabrica.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success("Planilha da fábrica gerada. Abra no Excel para conferir.");
+    } catch (err: any) {
+      toast.error(err?.message || "Não foi possível gerar a planilha da fábrica.");
+    } finally {
+      setBuildingSheet(false);
+    }
   };
 
   const copyTxt = async () => {
@@ -176,7 +248,7 @@ function OrderDetailPage() {
           <CheckCircle2 className="h-5 w-5 shrink-0" />
           <p className="text-sm">
             <strong>Pedido confirmado.</strong> Ele não pode mais ser
-            alterado. Baixe o PDF e o TXT para enviar à fábrica.
+            alterado. Baixe o PDF e a planilha da fábrica para enviar.
           </p>
         </div>
       )}
@@ -261,6 +333,12 @@ function OrderDetailPage() {
           {isConfirmed && (
             <Button variant="outline" onClick={() => setTxtOpen(true)}>
               <FileText className="mr-2 h-4 w-4" /> TXT do pedido
+            </Button>
+          )}
+          {isConfirmed && (
+            <Button variant="outline" onClick={downloadFactorySheet} disabled={buildingSheet}>
+              <FileSpreadsheet className="mr-2 h-4 w-4" />
+              {buildingSheet ? "Gerando..." : "Planilha da fábrica"}
             </Button>
           )}
           {!isConfirmed && (
