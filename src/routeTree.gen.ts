@@ -17,6 +17,7 @@ import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authen
 import { Route as AuthenticatedPedidosRouteImport } from './routes/_authenticated/pedidos'
 import { Route as AuthenticatedVendedoresRouteImport } from './routes/_authenticated/vendedores'
 import { Route as AuthenticatedConfiguracoesImpostosRouteImport } from './routes/_authenticated/configuracoes_.impostos'
+import { Route as AuthenticatedConfiguracoesPlanilhaFabricaRouteImport } from './routes/_authenticated/configuracoes_.planilha-fabrica'
 import { Route as AuthenticatedConfiguracoesPrazosPagamentoRouteImport } from './routes/_authenticated/configuracoes_.prazos-pagamento'
 import { Route as AuthenticatedConfiguracoesTabelaPrecosRouteImport } from './routes/_authenticated/configuracoes_.tabela-precos'
 import { Route as AuthenticatedPedidosIdRouteImport } from './routes/_authenticated/pedidos_.$id'
@@ -64,6 +65,12 @@ const AuthenticatedConfiguracoesImpostosRoute =
     path: '/configuracoes/impostos',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedConfiguracoesPlanilhaFabricaRoute =
+  AuthenticatedConfiguracoesPlanilhaFabricaRouteImport.update({
+    id: '/configuracoes_/planilha-fabrica',
+    path: '/configuracoes/planilha-fabrica',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedConfiguracoesPrazosPagamentoRoute =
   AuthenticatedConfiguracoesPrazosPagamentoRouteImport.update({
     id: '/configuracoes_/prazos-pagamento',
@@ -102,6 +109,7 @@ export interface FileRoutesByFullPath {
   '/pedidos': typeof AuthenticatedPedidosRoute
   '/vendedores': typeof AuthenticatedVendedoresRoute
   '/configuracoes/impostos': typeof AuthenticatedConfiguracoesImpostosRoute
+  '/configuracoes/planilha-fabrica': typeof AuthenticatedConfiguracoesPlanilhaFabricaRoute
   '/configuracoes/prazos-pagamento': typeof AuthenticatedConfiguracoesPrazosPagamentoRoute
   '/configuracoes/tabela-precos': typeof AuthenticatedConfiguracoesTabelaPrecosRoute
   '/pedidos/$id': typeof AuthenticatedPedidosIdRoute
@@ -116,6 +124,7 @@ export interface FileRoutesByTo {
   '/vendedores': typeof AuthenticatedVendedoresRoute
   '/': typeof AuthenticatedIndexRoute
   '/configuracoes/impostos': typeof AuthenticatedConfiguracoesImpostosRoute
+  '/configuracoes/planilha-fabrica': typeof AuthenticatedConfiguracoesPlanilhaFabricaRoute
   '/configuracoes/prazos-pagamento': typeof AuthenticatedConfiguracoesPrazosPagamentoRoute
   '/configuracoes/tabela-precos': typeof AuthenticatedConfiguracoesTabelaPrecosRoute
   '/pedidos/$id': typeof AuthenticatedPedidosIdRoute
@@ -132,6 +141,7 @@ export interface FileRoutesById {
   '/_authenticated/vendedores': typeof AuthenticatedVendedoresRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/configuracoes_/impostos': typeof AuthenticatedConfiguracoesImpostosRoute
+  '/_authenticated/configuracoes_/planilha-fabrica': typeof AuthenticatedConfiguracoesPlanilhaFabricaRoute
   '/_authenticated/configuracoes_/prazos-pagamento': typeof AuthenticatedConfiguracoesPrazosPagamentoRoute
   '/_authenticated/configuracoes_/tabela-precos': typeof AuthenticatedConfiguracoesTabelaPrecosRoute
   '/_authenticated/pedidos_/$id': typeof AuthenticatedPedidosIdRoute
@@ -148,6 +158,7 @@ export interface FileRouteTypes {
     | '/pedidos'
     | '/vendedores'
     | '/configuracoes/impostos'
+    | '/configuracoes/planilha-fabrica'
     | '/configuracoes/prazos-pagamento'
     | '/configuracoes/tabela-precos'
     | '/pedidos/$id'
@@ -162,6 +173,7 @@ export interface FileRouteTypes {
     | '/vendedores'
     | '/'
     | '/configuracoes/impostos'
+    | '/configuracoes/planilha-fabrica'
     | '/configuracoes/prazos-pagamento'
     | '/configuracoes/tabela-precos'
     | '/pedidos/$id'
@@ -177,6 +189,7 @@ export interface FileRouteTypes {
     | '/_authenticated/vendedores'
     | '/_authenticated/'
     | '/_authenticated/configuracoes_/impostos'
+    | '/_authenticated/configuracoes_/planilha-fabrica'
     | '/_authenticated/configuracoes_/prazos-pagamento'
     | '/_authenticated/configuracoes_/tabela-precos'
     | '/_authenticated/pedidos_/$id'
@@ -247,6 +260,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedConfiguracoesImpostosRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/configuracoes_/planilha-fabrica': {
+      id: '/_authenticated/configuracoes_/planilha-fabrica'
+      path: '/configuracoes/planilha-fabrica'
+      fullPath: '/configuracoes/planilha-fabrica'
+      preLoaderRoute: typeof AuthenticatedConfiguracoesPlanilhaFabricaRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/configuracoes_/prazos-pagamento': {
       id: '/_authenticated/configuracoes_/prazos-pagamento'
       path: '/configuracoes/prazos-pagamento'
@@ -292,6 +312,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedVendedoresRoute: typeof AuthenticatedVendedoresRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedConfiguracoesImpostosRoute: typeof AuthenticatedConfiguracoesImpostosRoute
+  AuthenticatedConfiguracoesPlanilhaFabricaRoute: typeof AuthenticatedConfiguracoesPlanilhaFabricaRoute
   AuthenticatedConfiguracoesPrazosPagamentoRoute: typeof AuthenticatedConfiguracoesPrazosPagamentoRoute
   AuthenticatedConfiguracoesTabelaPrecosRoute: typeof AuthenticatedConfiguracoesTabelaPrecosRoute
   AuthenticatedPedidosIdRoute: typeof AuthenticatedPedidosIdRoute
@@ -307,6 +328,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedConfiguracoesImpostosRoute:
     AuthenticatedConfiguracoesImpostosRoute,
+  AuthenticatedConfiguracoesPlanilhaFabricaRoute:
+    AuthenticatedConfiguracoesPlanilhaFabricaRoute,
   AuthenticatedConfiguracoesPrazosPagamentoRoute:
     AuthenticatedConfiguracoesPrazosPagamentoRoute,
   AuthenticatedConfiguracoesTabelaPrecosRoute:
