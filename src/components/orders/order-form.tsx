@@ -399,6 +399,7 @@ export function OrderForm({
           <Table className="w-full table-fixed">
             <TableHeader>
               <TableRow>
+                <TableHead className="w-8 px-1 text-center">Item</TableHead>
                 <TableHead className="w-12 px-2">Foto</TableHead>
                 <TableHead className="w-[84px] px-2">Código</TableHead>
                 <TableHead className="px-2">Descrição</TableHead>
@@ -416,7 +417,7 @@ export function OrderForm({
             <TableBody>
               {items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={showIpi ? 12 : 11} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={showIpi ? 13 : 12} className="h-24 text-center text-muted-foreground">
                     Nenhum produto adicionado.
                   </TableCell>
                 </TableRow>
@@ -429,6 +430,9 @@ export function OrderForm({
                   const unitWithTaxes = unit * (1 + (item.ipi_percent + item.st_percent) / 100);
                   return (
                     <TableRow key={item.catalog_product_id}>
+                      <TableCell className="px-1 text-center text-xs font-medium text-muted-foreground">
+                        {index + 1}
+                      </TableCell>
                       <TableCell className="px-2">
                         <ProductImage
                           src={item.image_url}
@@ -569,7 +573,7 @@ export function OrderForm({
                     />
                     <div className="min-w-0 flex-1">
                       <p className="font-mono text-xs text-muted-foreground">
-                        {item.code}
+                        Item {index + 1} · {item.code}
                       </p>
                       <p className="text-sm font-medium leading-snug">
                         {item.description}
