@@ -131,6 +131,9 @@ const textCell = (ref: string, value: string) => (style: string) =>
   `<c r="${ref}"${style} t="inlineStr"><is><t xml:space="preserve">${xmlEscape(value)}</t></is></c>`;
 const numberCell = (ref: string, value: number) => (style: string) =>
   `<c r="${ref}"${style}><v>${value}</v></c>`;
+/** Célula numérica com um estilo escolhido (ignora o estilo que já tinha). */
+const numberCellWithStyle = (ref: string, value: number, styleIndex: number) => () =>
+  `<c r="${ref}" s="${styleIndex}"><v>${value}</v></c>`;
 const emptyCell = (ref: string) => (style: string) => `<c r="${ref}"${style}/>`;
 
 /** Edita uma linha (r="N") do XML da planilha. */
@@ -306,6 +309,32 @@ async function removeDanglingReferences(entries: ZipEntry[]): Promise<ZipEntry[]
   return result;
 }
 
+/**
+ * A coluna DESCONTO da planilha costuma estar formatada como "0%", que
+ * mostra 9,79% como "10%" (o valor guardado está certo, só a exibição
+ * arredonda). Cria uma cópia desse estilo com "0,00%" e devolve o número
+ * do novo estilo. Devolve null se o estilo já mostra casas decimais.
+ */
+function clonePercentStyle(
+  stylesXml: string,
+  baseStyleIndex: number
+): { xml: string; index: number } | null {
+  const block = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(stylesXml);
+  if (!block) return null;
+  const xfs = block[1]!.match(/<xf\b[^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g) ?? [];
+  const base = xfs[baseStyleIndex];
+  if (!base || !/numFmtId="9"/.test(base)) return null;
+  let clone = base.replace('numFmtId="9"', 'numFmtId="10"');
+  if (!/applyNumberFormat=/.test(clone)) {
+    clone = clone.replace('numFmtId="10"', 'numFmtId="10" applyNumberFormat="1"');
+  }
+  const index = xfs.length;
+  const withClone = stylesXml
+    .replace(/(<cellXfs\b[^>]*?)count="\d+"/, `$1count="${index + 1}"`)
+    .replace("</cellXfs>", `${clone}</cellXfs>`);
+  return { xml: withClone, index };
+}
+
 export async function fillFactorySheet(input: FactorySheetInput): Promise<FactorySheetResult> {
   const entries = readZip(input.template);
   const sheetPath = await findSheetPath(entries, FACTORY_SHEET_NAME);
@@ -357,6 +386,28 @@ export async function fillFactorySheet(input: FactorySheetInput): Promise<Factor
     xml = editRow(xml, 6, (row) => setCell(row, "H6", emptyCell("H6")));
   }
 
+  // Estilo "0,00%" para a coluna DESCONTO (senão 9,79% aparece como 10%).
+  let stylesEntry: ZipEntry | null = null;
+  let newStylesXml: string | null = null;
+  let discountStyle: number | null = null;
+  const stylesFile = entries.find((e) => e.name === "xl/styles.xml");
+  const firstRow = itemRows[0]?.row;
+  if (stylesFile && firstRow) {
+    const m = cellRegex(`M${firstRow}`).exec(xml);
+    const baseStyle = m ? attr(m[1] ?? "", "s") : null;
+    if (baseStyle !== null) {
+      const cloned = clonePercentStyle(
+        decoder.decode(await inflateEntry(stylesFile)),
+        Number(baseStyle)
+      );
+      if (cloned) {
+        stylesEntry = stylesFile;
+        newStylesXml = cloned.xml;
+        discountStyle = cloned.index;
+      }
+    }
+  }
+
   // Itens: limpa o que veio de exemplo no modelo e grava o pedido.
   for (const { row, code } of itemRows) {
     const w = wanted.get(code);
@@ -366,7 +417,9 @@ export async function fillFactorySheet(input: FactorySheetInput): Promise<Factor
         out,
         `M${row}`,
         w && w.discountFraction > 0
-          ? numberCell(`M${row}`, w.discountFraction)
+          ? discountStyle !== null
+            ? numberCellWithStyle(`M${row}`, w.discountFraction, discountStyle)
+            : numberCell(`M${row}`, w.discountFraction)
           : emptyCell(`M${row}`)
       );
       if (input.taxFree) out = setCell(out, `J${row}`, numberCell(`J${row}`, 0));
@@ -403,8 +456,18 @@ export async function fillFactorySheet(input: FactorySheetInput): Promise<Factor
 
   const newSheet = await makeEntry(sheetEntry.name, encoder.encode(xml), sheetEntry);
   const newWorkbook = await makeEntry(workbookEntry.name, encoder.encode(workbookXml), workbookEntry);
+  const newStyles =
+    stylesEntry && newStylesXml
+      ? await makeEntry(stylesEntry.name, encoder.encode(newStylesXml), stylesEntry)
+      : null;
   const out = entries.map((e) =>
-    e.name === sheetEntry.name ? newSheet : e.name === workbookEntry.name ? newWorkbook : e
+    e.name === sheetEntry.name
+      ? newSheet
+      : e.name === workbookEntry.name
+        ? newWorkbook
+        : newStyles && e.name === newStyles.name
+          ? newStyles
+          : e
   );
   const cleaned = await removeDanglingReferences(out);
   return { bytes: writeZip(cleaned), missingCodes: missing, paymentTermWritten, paymentTermMatched };
