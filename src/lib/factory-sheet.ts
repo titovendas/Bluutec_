@@ -210,6 +210,55 @@ export async function inspectFactoryTemplate(template: Uint8Array): Promise<Fact
   return { itemRows: rows.length, codes: rows.map((r) => r.code) };
 }
 
+/** Caminho do arquivo apontado por uma relação, a partir do .rels dela. */
+function resolveRelTarget(relsPath: string, target: string): string {
+  if (target.startsWith("/")) return target.slice(1);
+  const relsDir = relsPath.slice(0, relsPath.lastIndexOf("/") + 1);
+  const sourceDir = relsDir.replace(/_rels\/$/, "");
+  const out: string[] = [];
+  for (const part of (sourceDir + target).split("/")) {
+    if (part === "..") out.pop();
+    else if (part !== "." && part !== "") out.push(part);
+  }
+  return out.join("/");
+}
+
+/**
+ * Remove do pacote o que aponta para arquivos que não existem (relações e
+ * tipos de conteúdo). Alguns programas deixam esses restos e o Excel acusa
+ * "problema em um conteúdo".
+ */
+async function removeDanglingReferences(entries: ZipEntry[]): Promise<ZipEntry[]> {
+  const names = new Set(entries.map((e) => e.name));
+  const result: ZipEntry[] = [];
+  for (const entry of entries) {
+    const isTypes = entry.name === "[Content_Types].xml";
+    const isRels = entry.name.endsWith(".rels");
+    if (!isTypes && !isRels) {
+      result.push(entry);
+      continue;
+    }
+    const xml = decoder.decode(await inflateEntry(entry));
+    let cleaned = xml;
+    if (isTypes) {
+      cleaned = xml.replace(/<Override\b[^>]*\/>/g, (tag) => {
+        const part = attr(tag, "PartName");
+        return part && !names.has(part.replace(/^\//, "")) ? "" : tag;
+      });
+    } else {
+      cleaned = xml.replace(/<Relationship\b[^>]*\/>/g, (tag) => {
+        if (attr(tag, "TargetMode") === "External") return tag;
+        const target = attr(tag, "Target");
+        return target && !names.has(resolveRelTarget(entry.name, target)) ? "" : tag;
+      });
+    }
+    result.push(
+      cleaned === xml ? entry : await makeEntry(entry.name, encoder.encode(cleaned), entry)
+    );
+  }
+  return result;
+}
+
 export async function fillFactorySheet(input: FactorySheetInput): Promise<FactorySheetResult> {
   const entries = readZip(input.template);
   const sheetPath = await findSheetPath(entries, FACTORY_SHEET_NAME);
@@ -279,10 +328,22 @@ export async function fillFactorySheet(input: FactorySheetInput): Promise<Factor
       : workbookXml.replace("</workbook>", '<calcPr fullCalcOnLoad="1"/></workbook>');
   }
 
+  // Planilhas salvas por alguns programas (ex.: Kingsoft/WPS) trazem nomes
+  // definidos repetidos, que o Excel trata como arquivo corrompido.
+  const seenNames = new Set<string>();
+  workbookXml = workbookXml.replace(/<definedName\b[^>]*>[\s\S]*?<\/definedName>/g, (tag) => {
+    const open = /<definedName\b[^>]*>/.exec(tag)![0];
+    const key = `${attr(open, "name")}|${attr(open, "localSheetId") ?? ""}`;
+    if (seenNames.has(key)) return "";
+    seenNames.add(key);
+    return tag;
+  });
+
   const newSheet = await makeEntry(sheetEntry.name, encoder.encode(xml), sheetEntry);
   const newWorkbook = await makeEntry(workbookEntry.name, encoder.encode(workbookXml), workbookEntry);
   const out = entries.map((e) =>
     e.name === sheetEntry.name ? newSheet : e.name === workbookEntry.name ? newWorkbook : e
   );
-  return { bytes: writeZip(out), missingCodes: missing };
+  const cleaned = await removeDanglingReferences(out);
+  return { bytes: writeZip(cleaned), missingCodes: missing };
 }
