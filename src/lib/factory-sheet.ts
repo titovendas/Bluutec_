@@ -317,7 +317,7 @@ export async function fillFactorySheet(input: FactorySheetInput): Promise<Factor
   xml = xml.replace(/<c\s[^>/]*>[\s\S]*?<\/c>/g, (cell) => {
     if (!cell.includes("<f")) return cell;
     return cell
-      .replace(/<v>[\s\S]*?<\/v>/, "")
+      .replace(/<v\s*\/>|<v>[\s\S]*?<\/v>/, "")
       .replace(/^(<c\s[^>]*?)\st="[^"]*"/, "$1");
   });
 
