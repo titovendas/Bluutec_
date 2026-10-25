@@ -37,11 +37,57 @@ export function catalogTablePrice(product: any): number {
 }
 
 /**
- * Preço líquido final de um item: preço de tabela, com a política
- * comercial, o desconto do item e os dois descontos do pedido aplicados
- * em cadeia (cada um multiplica sobre o valor restante).
+ * Arredonda PARA CIMA em 3 casas, igual ao ROUNDUP(x;3) da planilha da
+ * fábrica. O toFixed(9) tira a "sujeira" de ponto flutuante (ex.:
+ * 0.5110000000000001) para não subir 0,001 por engano.
+ */
+export function roundUp3(value: number): number {
+  return Math.ceil(Number((value * 1000).toFixed(9))) / 1000;
+}
+
+/** Desconto combinado (em fração, ex.: 0,0591) de item + à vista +
+ * retirada em cadeia: 1 − (1−item)(1−à vista)(1−retirada). É o valor que
+ * vai na coluna DESCONTO da planilha da fábrica. */
+export function combinedDiscountFraction(
+  itemDiscountPercent: number,
+  cashDiscountPercent: number,
+  pickupDiscountPercent: number
+): number {
+  const factor =
+    (1 - (itemDiscountPercent || 0) / 100) *
+    (1 - (cashDiscountPercent || 0) / 100) *
+    (1 - (pickupDiscountPercent || 0) / 100);
+  return Number((1 - factor).toFixed(10));
+}
+
+/** Política em fração (35,02 → 0,3502), exatamente como na planilha. */
+export function politicaFraction(table: PriceTable | string): number {
+  return Math.round(politicaDiscountPercent(table) * 100) / 10000;
+}
+
+/**
+ * Preço líquido final de um item, como a planilha da fábrica calcula:
+ * ROUNDUP((tabela × (1 − política)) × (1 − desconto combinado); 3).
+ * O desconto combinado junta item, à vista e retirada em cadeia.
  */
 export function computeNetUnitPrice(
+  tablePrice: number,
+  table: PriceTable | string,
+  itemDiscountPercent: number,
+  cashDiscountPercent: number,
+  pickupDiscountPercent: number
+): number {
+  const m = combinedDiscountFraction(
+    itemDiscountPercent,
+    cashDiscountPercent,
+    pickupDiscountPercent
+  );
+  return roundUp3(tablePrice * (1 - politicaFraction(table)) * (1 - m));
+}
+
+/** Cálculo antigo (sem arredondar para cima). Só serve para pedidos
+ * gravados antes do alinhamento com a planilha da fábrica. */
+export function computeNetUnitPriceExact(
   tablePrice: number,
   table: PriceTable | string,
   itemDiscountPercent: number,
@@ -55,7 +101,6 @@ export function computeNetUnitPrice(
     (1 - (pickupDiscountPercent || 0) / 100);
   return tablePrice * factor;
 }
-
 
 /**
  * Quando a política de um orçamento está em branco ou inválida, descobre
@@ -118,12 +163,17 @@ export function effectiveUnitPrice(
   const policy = normalizePriceTable(order?.price_table);
   const tablePrice = Number(item.table_price ?? 0);
   if (!policy || !(tablePrice > 0)) return stored;
-  const recomputed = computeNetUnitPrice(
+  const args = [
     tablePrice,
     policy,
     Number(item.discount_percent ?? 0),
     Number(order?.cash_discount_percent ?? 0),
-    Number(order?.pickup_discount_percent ?? 0)
-  );
+    Number(order?.pickup_discount_percent ?? 0),
+  ] as const;
+  // Pedido novo: o unitário gravado já segue a regra da planilha da fábrica
+  // (para cima, 3 casas) — usa exatamente o gravado.
+  if (Math.abs(computeNetUnitPrice(...args) - stored) < 1e-7) return stored;
+  // Pedido antigo: refaz o valor completo (sem arredondar), como antes.
+  const recomputed = computeNetUnitPriceExact(...args);
   return Math.abs(recomputed - stored) <= 0.0051 ? recomputed : stored;
 }
