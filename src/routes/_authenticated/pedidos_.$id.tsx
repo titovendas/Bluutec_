@@ -135,6 +135,7 @@ function OrderDetailPage() {
         policyFraction: politicaFraction(policy),
         uf: uf || null,
         taxFree,
+        paymentTerm: ((order as any).payment_term ?? null) as string | null,
         items: (items as any[]).map((item) => ({
           code: String(item.code ?? ""),
           quantity: Number(item.quantity ?? 0),
@@ -164,6 +165,14 @@ function OrderDetailPage() {
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       toast.success("Planilha da fábrica gerada. Abra no Excel para conferir.");
+      if (result.paymentTermWritten && !result.paymentTermMatched) {
+        toast.warning(
+          `O prazo "${result.paymentTermWritten}" não está na lista da planilha da fábrica: foi escrito como está, mas a planilha não calcula as parcelas.`
+        );
+      }
+      if (!result.paymentTermWritten) {
+        toast.warning("Este pedido está sem prazo de pagamento; o campo ficou vazio na planilha.");
+      }
     } catch (err: any) {
       toast.error(err?.message || "Não foi possível gerar a planilha da fábrica.");
     } finally {
