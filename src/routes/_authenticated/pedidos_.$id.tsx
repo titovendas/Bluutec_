@@ -423,7 +423,6 @@ function OrderDetailPage() {
                 <TableHead>Descrição</TableHead>
                 <TableHead className="text-right">Qtd</TableHead>
                 <TableHead className="text-right">Unitário</TableHead>
-                <TableHead className="text-right">IPI</TableHead>
                 <TableHead className="text-right">ST</TableHead>
                 <TableHead className="text-right">Unit. c/ impostos</TableHead>
                 <TableHead className="text-right">Total</TableHead>
@@ -448,12 +447,6 @@ function OrderDetailPage() {
                   <TableCell className="text-right">{item.quantity}</TableCell>
                   <TableCell className="text-right">
                     {formatCurrency3(effectiveUnitPrice(order as any, item))}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {formatCurrency(item.ipi_value)}
-                    <span className="block text-xs text-muted-foreground">
-                      {item.ipi_percent}%
-                    </span>
                   </TableCell>
                   <TableCell className="text-right">
                     {formatCurrency(item.st_value)}
