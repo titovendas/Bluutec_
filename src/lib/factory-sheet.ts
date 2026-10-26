@@ -427,14 +427,9 @@ export async function fillFactorySheet(input: FactorySheetInput): Promise<Factor
     });
   }
 
-  // Tira os resultados antigos guardados nas fórmulas (eram do pedido de
-  // exemplo); o Excel recalcula tudo ao abrir.
-  xml = xml.replace(/<c\s[^>/]*>[\s\S]*?<\/c>/g, (cell) => {
-    if (!cell.includes("<f")) return cell;
-    return cell
-      .replace(/<v\s*\/>|<v>[\s\S]*?<\/v>/, "")
-      .replace(/^(<c\s[^>]*?)\st="[^"]*"/, "$1");
-  });
+  // Os resultados guardados nas fórmulas NÃO são mexidos: o Excel recalcula
+  // tudo ao abrir (fullCalcOnLoad). Limpar esses valores deixava o Excel
+  // desconfiado do arquivo ("problema em um conteúdo").
 
   let workbookXml = decoder.decode(await inflateEntry(workbookEntry));
   if (!/fullCalcOnLoad/.test(workbookXml)) {
@@ -460,7 +455,13 @@ export async function fillFactorySheet(input: FactorySheetInput): Promise<Factor
     stylesEntry && newStylesXml
       ? await makeEntry(stylesEntry.name, encoder.encode(newStylesXml), stylesEntry)
       : null;
-  const out = entries.map((e) =>
+  // Cliente construtora: trocamos fórmulas de ST por zero. Como a "cadeia de
+  // cálculo" do Excel ainda listaria essas células como fórmulas, ela é
+  // removida (o Excel monta de novo ao abrir). A limpeza abaixo tira junto
+  // as referências a ela.
+  const out = entries
+    .filter((e) => !(input.taxFree && e.name === "xl/calcChain.xml"))
+    .map((e) =>
     e.name === sheetEntry.name
       ? newSheet
       : e.name === workbookEntry.name
